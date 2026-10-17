@@ -18,4 +18,5 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { aidl = true }
+    testOptions { unitTests.isIncludeAndroidResources = true }
 }

@@ -22,6 +22,8 @@ internal class AbyssMediaServer(private val context: Context) {
     @Volatile private var socket: ServerSocket? = null
     @Volatile private var source: AbyssSource? = null
     @Volatile private var token: String? = null
+    @Volatile var lastActivityMs: Long = System.currentTimeMillis()
+        private set
     private val chunkSize = 1024 * 1024
 
     @Synchronized fun register(next: AbyssSource): String {
@@ -46,6 +48,7 @@ internal class AbyssMediaServer(private val context: Context) {
             client.soTimeout = 30000
             val input = BufferedInputStream(client.getInputStream())
             val request = readHeader(input) ?: return
+            lastActivityMs = System.currentTimeMillis()
             val line = request.first().split(' ')
             val method = line.getOrNull(0) ?: return
             val path = line.getOrNull(1) ?: return

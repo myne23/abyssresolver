@@ -54,7 +54,7 @@ internal class AbyssMediaServer(private val context: Context) {
             }.toMap()
             val expected = "/s/${token}/video.mp4"
             if (method == "OPTIONS") {
-                client.getOutputStream().write("HTTP/1.1 204 No Content\\r\\nAccess-Control-Allow-Origin: *\\r\\nAccess-Control-Allow-Methods: GET, HEAD, OPTIONS\\r\\nAccess-Control-Allow-Headers: Range\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n".toByteArray())
+                client.getOutputStream().write("HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, HEAD, OPTIONS\r\nAccess-Control-Allow-Headers: Range\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
                 return
             }
             if (path.substringBefore('?') != expected || (method != "GET" && method != "HEAD")) { reply(client, 404, "not found"); return }

@@ -61,6 +61,33 @@ class ResolverService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder = binder.asBinder()
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startForegroundCompat()
+        return START_NOT_STICKY
+    }
+
+    private fun promoteToForeground() {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(Intent(this, ResolverService::class.java))
+            else startService(Intent(this, ResolverService::class.java))
+        }
+    }
+
+    private fun startForegroundCompat() {
+        val manager = getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(NotificationChannel("abyss-resolver", "Abyss Resolver", NotificationManager.IMPORTANCE_LOW))
+        }
+        val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(this, "abyss-resolver") else @Suppress("DEPRECATION") Notification.Builder(this)
+        val notification = builder.setContentTitle("Abyss Resolver")
+            .setContentText("Sirviendo video a Kino / Serving video to Kino")
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentIntent(open).setOngoing(true).build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) startForeground(7, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        else startForeground(7, notification)
+    }
     override fun onDestroy() {
         current?.set(true)
         executor.shutdownNow()

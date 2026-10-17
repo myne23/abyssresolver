@@ -7,7 +7,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLDecoder
 import java.nio.charset.Charset
-import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -102,5 +101,5 @@ internal object AbyssSourceResolver {
     }
 
     private fun decode(s: String) = runCatching { URLDecoder.decode(s, "UTF-8") }.getOrDefault(s)
-    private fun md5(s: String) = MessageDigest.getInstance("MD5").digest(s.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    private fun md5(s: String) = AbyssCrypto.md5Hex(s)
 }

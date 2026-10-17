@@ -9,6 +9,8 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.content.Intent
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.arkiv.player.resolver.contract.IExternalResolver
 import com.arkiv.player.resolver.contract.IExternalResolverCallback
@@ -20,12 +22,28 @@ class ResolverService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     @Volatile private var current: AtomicBoolean? = null
     @Volatile private var server: AbyssMediaServer? = null
+    @Volatile private var resolving = false
+    @Volatile private var lastResolveAt = System.currentTimeMillis()
+    private val main = Handler(Looper.getMainLooper())
+    private val idleCheck = object : Runnable {
+        override fun run() {
+            val lastRead = maxOf(lastResolveAt, server?.lastActivityMs ?: 0L)
+            if (!resolving && System.currentTimeMillis() - lastRead > 10 * 60 * 1000L) {
+                server?.stop()
+                server = null
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            } else main.postDelayed(this, 60_000L)
+        }
+    }
 
     private val binder = object : IExternalResolver.Stub() {
         override fun resolve(protocol: String, ref: String, callback: IExternalResolverCallback) {
             current?.set(true)
             val cancelled = AtomicBoolean(false)
             current = cancelled
+            resolving = true
+            lastResolveAt = System.currentTimeMillis()
             executor.execute {
                 var finished = false
                 try {
@@ -54,6 +72,10 @@ class ResolverService : Service() {
                     finished = true
                 } finally {
                     if (!finished) runCatching { callback.onError("other", "Error inesperado / Unexpected error") }
+                    resolving = false
+                    if (current === cancelled) current = null
+                    main.removeCallbacks(idleCheck)
+                    main.postDelayed(idleCheck, 60_000L)
                 }
             }
         }
@@ -64,6 +86,8 @@ class ResolverService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundCompat()
+        main.removeCallbacks(idleCheck)
+        main.postDelayed(idleCheck, 60_000L)
         return START_NOT_STICKY
     }
 
@@ -89,6 +113,7 @@ class ResolverService : Service() {
         else startForeground(7, notification)
     }
     override fun onDestroy() {
+        main.removeCallbacksAndMessages(null)
         current?.set(true)
         executor.shutdownNow()
         server?.stop()

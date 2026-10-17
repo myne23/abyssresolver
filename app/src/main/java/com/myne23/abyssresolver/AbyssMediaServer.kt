@@ -44,6 +44,7 @@ internal class AbyssMediaServer(private val context: Context) {
     fun stop() { runCatching { socket?.close() }; socket = null; source = null }
 
     private fun serve(sock: Socket) = sock.use { client ->
+        var headersSent = false
         try {
             client.soTimeout = 30000
             val input = BufferedInputStream(client.getInputStream())
@@ -88,7 +89,7 @@ internal class AbyssMediaServer(private val context: Context) {
             }
             out.flush()
         } catch (e: Throwable) {
-            runCatching { reply(client, 503, "Abyss upstream unavailable") }
+            if (!headersSent) runCatching { reply(client, 503, "Abyss upstream unavailable") }
         }
     }
 

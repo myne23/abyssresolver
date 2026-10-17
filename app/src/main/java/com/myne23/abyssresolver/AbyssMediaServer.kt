@@ -57,7 +57,11 @@ internal class AbyssMediaServer(private val context: Context) {
                 val i = it.indexOf(':'); if (i <= 0) null else it.substring(0, i).trim().lowercase() to it.substring(i + 1).trim()
             }.toMap()
             val expected = "/s/${token}/video.mp4"
-            if (path != expected || (method != "GET" && method != "HEAD")) { reply(client, 404, "not found"); return }
+            if (method == "OPTIONS") {
+                client.getOutputStream().write("HTTP/1.1 204 No Content\\r\\nAccess-Control-Allow-Origin: *\\r\\nAccess-Control-Allow-Methods: GET, HEAD, OPTIONS\\r\\nAccess-Control-Allow-Headers: Range\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n".toByteArray())
+                return
+            }
+            if (path.substringBefore('?') != expected || (method != "GET" && method != "HEAD")) { reply(client, 404, "not found"); return }
             val src = source ?: run { reply(client, 503, "stream unavailable"); return }
             val meta = probe(src)
             val total = meta.first

@@ -20,3 +20,7 @@ android {
     buildFeatures { aidl = true }
     testOptions { unitTests.isIncludeAndroidResources = true }
 }
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+}

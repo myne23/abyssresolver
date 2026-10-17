@@ -29,7 +29,8 @@ class ResolverService : Service() {
             executor.execute {
                 var finished = false
                 try {
-                    promoteToForeground()\n                    if (protocol != "abyss") throw ResolveFailure("unsupported", "Protocolo no compatible / Unsupported protocol")
+                    promoteToForeground()
+                    if (protocol != "abyss") throw ResolveFailure("unsupported", "Protocolo no compatible / Unsupported protocol")
                     callback.onProgress(-1, "Preparando Abyss… / Preparing Abyss…")
                     val parsed = AbyssSourceResolver.resolve(ref, cancelled) { p, msg -> callback.onProgress(p, msg) }
                     if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")

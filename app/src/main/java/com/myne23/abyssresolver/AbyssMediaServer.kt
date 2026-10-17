@@ -9,11 +9,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.URL
 import java.net.HttpURLConnection
-import java.security.MessageDigest
 import java.security.SecureRandom
-import javax.crypto.Cipher
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.SecretKeySpec
 import kotlin.math.min
 
 /**
@@ -144,12 +140,7 @@ internal class AbyssMediaServer(private val context: Context) {
     }
 
     private fun decryptPrefix(bytes: ByteArray, length: Int, filename: String) {
-        val keyText = md5(filename)
-        val key = keyText.toByteArray(Charsets.US_ASCII)
-        val cipher = Cipher.getInstance("AES/CTR/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(key.copyOfRange(0, 16)))
-        val clear = cipher.doFinal(bytes.copyOfRange(0, length))
-        System.arraycopy(clear, 0, bytes, 0, clear.size)
+        AbyssCrypto.decryptMp4Prefix(bytes, length, filename)
     }
 
     private fun probe(src: AbyssSource): Pair<Long, Boolean> {
@@ -193,5 +184,5 @@ internal class AbyssMediaServer(private val context: Context) {
         client.getOutputStream().write(bytes)
     }
 
-    private fun md5(s: String) = MessageDigest.getInstance("MD5").digest(s.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    private fun md5(s: String) = AbyssCrypto.md5Hex(s)
 }

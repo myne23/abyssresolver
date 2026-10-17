@@ -162,7 +162,7 @@ internal class AbyssMediaServer(private val context: Context) {
         val b = m.groupValues[2].toLongOrNull()
         return when {
             a != null -> a to min(b ?: (total - 1), total - 1)
-            b != null && b > 0 -> maxOf(0, total - b) to total - 1
+            b != null && b > 0 -> maxOf(0L, total - b) to total - 1
             else -> -1L to -1L
         }
     }

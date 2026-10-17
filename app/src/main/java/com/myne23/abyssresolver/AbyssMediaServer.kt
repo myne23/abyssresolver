@@ -77,6 +77,7 @@ internal class AbyssMediaServer(private val context: Context) {
                 "Content-Type: video/mp4\r\nAccept-Ranges: bytes\r\nContent-Length: ${end - start + 1}\r\n" +
                 (if (partial) "Content-Range: bytes $start-$end/$total\r\n" else "") +
                 "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, HEAD, OPTIONS\r\nAccess-Control-Allow-Headers: Range\r\nAccess-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges, X-Resolver-Error\r\nConnection: close\r\n\r\n").toByteArray())
+            headersSent = true
             if (method == "HEAD") { out.flush(); return }
             var pos = start
             val buf = ByteArray(64 * 1024)

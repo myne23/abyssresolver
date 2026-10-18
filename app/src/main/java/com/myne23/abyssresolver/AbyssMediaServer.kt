@@ -36,6 +36,10 @@ internal class AbyssMediaServer(private val context: Context) {
     // Range requests still fetch only the chunk containing the requested position.
     private val chunkSize = 2 * 1024 * 1024
     private val SORA_SEGMENT_SIZE = 2L * 1024L * 1024L
+    // Track segment prefetches so repeated player reads don't start duplicate workers.
+    private val soraPrefetchScheduled = java.util.Collections.newSetFromMap(
+        java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    )
 
     @Synchronized fun register(next: AbyssSource): String {
         // A CDN host is reused across episodes; compare the full source metadata, not just the host URL.
@@ -176,11 +180,50 @@ internal class AbyssMediaServer(private val context: Context) {
                 if (failure != null) throw failure
             }
         }
+        if (src.segmented) scheduleSoraPrefetch(src, chunk + 1, total)
         val inChunk = (offset % segmentSize).toInt()
         val count = min(len, (file.length() - inChunk).toInt().coerceAtLeast(0))
         if (count <= 0) return -1
         java.io.RandomAccessFile(file, "r").use { it.seek(inChunk.toLong()); it.readFully(out, 0, count) }
         return count
+    }
+
+
+    /**
+     * Download one Sora segment ahead in the background. Playback reads are synchronous,
+     * so preparing the next 2 MiB while the current one is consumed hides intermittent CDN stalls.
+     */
+    private fun scheduleSoraPrefetch(src: AbyssSource, index: Int, total: Long) {
+        val segmentSize = SORA_SEGMENT_SIZE
+        if (index < 0 || index.toLong() * segmentSize >= total) return
+        val target = File(cache, md5(src.url + "|" + src.filename) + "-${segmentSize}-${index}.bin")
+        if (target.exists() || !soraPrefetchScheduled.add(target.absolutePath)) return
+        Thread({
+            try {
+                synchronized(target.absolutePath.intern()) {
+                    if (target.exists()) return@synchronized
+                    var failure: Throwable? = null
+                    for (attempt in 0..2) {
+                        try {
+                            fetchSoraSegment(src, index, target, total)
+                            failure = null
+                            break
+                        } catch (e: Exception) {
+                            failure = e
+                            diagnostic("upstream_prefetch_retry", "index=$index attempt=${attempt + 1}/3 ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+                            if (attempt < 2) Thread.sleep(300L * (attempt + 1))
+                        }
+                    }
+                    if (failure != null) {
+                        diagnostic("upstream_prefetch_failed", "index=$index ${failure.javaClass.simpleName}: ${failure.message ?: "no message"}")
+                    } else {
+                        diagnostic("upstream_prefetch_ok", "index=$index")
+                    }
+                }
+            } catch (e: Exception) {
+                diagnostic("upstream_prefetch_error", "index=$index ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+            }
+        }, "abyss-sora-prefetch-$index").apply { isDaemon = true; start() }
     }
 
     private fun fetchChunk(src: AbyssSource, index: Int, target: File, total: Long) {

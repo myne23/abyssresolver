@@ -62,6 +62,7 @@ internal class AbyssMediaServer(private val context: Context) {
         var requestEnd = -1L
         var bytesWritten = 0L
         var knownTotal = -1L
+        var failureStage = "request_setup"
         try {
             client.soTimeout = 30000
             val input = BufferedInputStream(client.getInputStream())
@@ -109,16 +110,19 @@ internal class AbyssMediaServer(private val context: Context) {
             val buf = ByteArray(64 * 1024)
             while (pos <= end) {
                 val n = min(buf.size.toLong(), end - pos + 1).toInt()
+                failureStage = "upstream_read"
                 val bytes = readDecrypted(src, pos, buf, n, total)
                 if (bytes <= 0) throw IllegalStateException("unexpected end of upstream stream")
+                failureStage = "client_write"
                 out.write(buf, 0, bytes)
                 bytesWritten += bytes
                 pos += bytes
             }
+            failureStage = "client_flush"
             out.flush()
             diagnostic("media_request", "$method range=$requestRange sent=$bytesWritten expected=${end - start + 1} total=$total durationMs=${System.currentTimeMillis() - requestStartedAt}")
         } catch (e: Throwable) {
-            diagnostic("media_request_error", "$requestMethod range=$requestRange sent=$bytesWritten pos=$requestStart..$requestEnd total=$knownTotal durationMs=${System.currentTimeMillis() - requestStartedAt} ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+            diagnostic("media_request_error", "$requestMethod range=$requestRange stage=$failureStage sent=$bytesWritten pos=$requestStart..$requestEnd total=$knownTotal durationMs=${System.currentTimeMillis() - requestStartedAt} ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
             if (!headersSent) runCatching { reply(client, 503, "Abyss upstream unavailable") }
         }
     }

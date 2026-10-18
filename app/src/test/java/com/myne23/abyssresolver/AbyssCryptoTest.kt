@@ -3,7 +3,6 @@ package com.myne23.abyssresolver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -13,9 +12,8 @@ class AbyssCryptoTest {
         assertEquals("d41d8cd98f00b204e9800998ecf8427e", AbyssCrypto.md5Hex(""))
     }
 
-    @Test fun numericMd5MatchesReferenceJavascriptStringConversion() {
-        val expected = AbyssCrypto.md5Hex("293544970")
-        assertEquals(expected, AbyssCrypto.md5NumericDigits(293544970L))
+    @Test fun numericMd5MatchesReferenceDownloaderDigitByteConversion() {
+        assertEquals("ed8dea762b2c2011309c07fd17b640d7", AbyssCrypto.md5NumericDigits(293544970L))
     }
 
     @Test fun mp4PrefixDecryptsAndLeavesBytesAfterPrefixUntouched() {

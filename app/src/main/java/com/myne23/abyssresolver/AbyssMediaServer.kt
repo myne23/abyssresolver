@@ -25,6 +25,7 @@ internal class AbyssMediaServer(private val context: Context) {
     @Volatile private var token: String? = null
     @Volatile private var probedUrl: String? = null
     @Volatile private var probedLength: Long = -1L
+    @Volatile private var layoutProbeUrl: String? = null
     @Volatile var lastActivityMs: Long = System.currentTimeMillis()
         private set
     // Smaller chunks make random seeks less likely to wait for a full megabyte download.
@@ -34,6 +35,7 @@ internal class AbyssMediaServer(private val context: Context) {
         if (source?.url != next.url) {
             probedUrl = null
             probedLength = -1L
+            layoutProbeUrl = null
         }
         source = next
         token = ByteArray(24).also(random::nextBytes).joinToString("") { "%02x".format(it) }
@@ -140,6 +142,7 @@ internal class AbyssMediaServer(private val context: Context) {
         if (!file.exists()) synchronized(file.absolutePath.intern()) {
             if (!file.exists()) fetchChunk(src, chunk, file, total)
         }
+        if (chunk == 0) scheduleLayoutProbe(src, total)
         val inChunk = (offset % chunkSize).toInt()
         val count = min(len, (file.length() - inChunk).toInt().coerceAtLeast(0))
         if (count <= 0) return -1
@@ -195,7 +198,10 @@ internal class AbyssMediaServer(private val context: Context) {
                 if (prefixLength >= 8) {
                     decryptPrefix(bytes, prefixLength, src.filename)
                     val marker = String(bytes, 4, 4, Charsets.US_ASCII)
-                    diagnostic("upstream_prefix_check", "chunk=$index bytes=$prefixLength markerBefore=$encryptedMarker markerAfter=$marker")
+                    val ftypSize = if (bytes.size >= 4) readUInt32(bytes, 0) else -1L
+                    val nextType = if (ftypSize >= 8 && ftypSize + 8 <= bytes.size) String(bytes, ftypSize.toInt() + 4, 4, Charsets.US_ASCII) else "outside-prefix"
+                    val nextSize = if (ftypSize >= 8 && ftypSize + 8 <= bytes.size) readUInt32(bytes, ftypSize.toInt()) else -1L
+                    diagnostic("upstream_prefix_check", "chunk=$index bytes=$prefixLength markerBefore=$encryptedMarker markerAfter=$marker ftypSize=$ftypSize next=$nextType nextSize=$nextSize")
                     if (marker != "ftyp") throw IllegalStateException("MP4 prefix check failed marker=$marker")
                     temp.writeBytes(bytes)
                 } else throw IllegalStateException("upstream first chunk too short bytes=${bytes.size}")
@@ -206,6 +212,42 @@ internal class AbyssMediaServer(private val context: Context) {
             diagnostic("upstream_chunk_error", "chunk=$index status=$code range=$start-$end received=$received durationMs=${System.currentTimeMillis() - started} ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
             throw e
         } finally { conn.disconnect() }
+    }
+
+    private fun scheduleLayoutProbe(src: AbyssSource, total: Long) {
+        synchronized(this) {
+            if (layoutProbeUrl == src.url) return
+            layoutProbeUrl = src.url
+        }
+        Thread({
+            try {
+                val lastIndex = ((total - 1) / chunkSize).toInt()
+                val lastFile = File(cache, md5(src.url) + "-${chunkSize}-$lastIndex.bin")
+                if (!lastFile.exists()) synchronized(lastFile.absolutePath.intern()) {
+                    if (!lastFile.exists()) fetchChunk(src, lastIndex, lastFile, total)
+                }
+                val bytes = lastFile.readBytes()
+                val needle = "moov".toByteArray(Charsets.US_ASCII)
+                val offsets = mutableListOf<Long>()
+                for (i in 0..(bytes.size - needle.size).coerceAtLeast(-1)) {
+                    if (i + 4 <= bytes.size && bytes.copyOfRange(i, i + 4).contentEquals(needle)) {
+                        offsets.add(lastIndex.toLong() * chunkSize + i - 4)
+                        if (offsets.size >= 4) break
+                    }
+                }
+                diagnostic("mp4_tail_probe", "tailStart=${lastIndex.toLong() * chunkSize} tailBytes=${bytes.size} moovHeaderOffsets=${if (offsets.isEmpty()) "none" else offsets.joinToString(",")}")
+            } catch (e: Throwable) {
+                diagnostic("mp4_tail_probe_error", "${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+            }
+        }, "abyss-mp4-layout").apply { isDaemon = true; start() }
+    }
+
+    private fun readUInt32(bytes: ByteArray, offset: Int): Long {
+        if (offset < 0 || offset + 4 > bytes.size) return -1L
+        return ((bytes[offset].toLong() and 0xff) shl 24) or
+            ((bytes[offset + 1].toLong() and 0xff) shl 16) or
+            ((bytes[offset + 2].toLong() and 0xff) shl 8) or
+            (bytes[offset + 3].toLong() and 0xff)
     }
 
     private fun decryptPrefix(bytes: ByteArray, length: Int, filename: String) {

@@ -81,11 +81,11 @@ class ResolverService : Service() {
                     callback.onResult(answer)
                     finished = true
                 } catch (e: ResolveFailure) {
-                    runCatching { callback.onError(e.code, e.message ?: "No se pudo resolver Abyss / Could not resolve Abyss") }
+                    runCatching { callback.onError(e.code, e.message ?: "No se pudo resolver la fuente / Could not resolve source") }
                     finished = true
                 } catch (e: Throwable) {
-                    Log.e("AbyssResolver", "resolve failed", e)
-                    runCatching { callback.onError("unavailable", "Abyss no respondió o no se pudo descifrar el video / Abyss did not respond or the video could not be decrypted") }
+                    Log.e("AbyssResolver", "external resolve failed for protocol=$protocol", e)
+                    runCatching { callback.onError("unavailable", "El proveedor no respondió o no se pudo descifrar el video / Provider did not respond or video could not be decrypted") }
                     finished = true
                 } finally {
                     if (!finished) runCatching { callback.onError("other", "Error inesperado / Unexpected error") }

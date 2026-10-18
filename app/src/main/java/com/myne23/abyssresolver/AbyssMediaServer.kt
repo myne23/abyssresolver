@@ -9,6 +9,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.URL
 import java.net.HttpURLConnection
+import android.util.Log
 import java.security.SecureRandom
 import kotlin.math.min
 
@@ -52,6 +53,9 @@ internal class AbyssMediaServer(private val context: Context) {
 
     private fun serve(sock: Socket) = sock.use { client ->
         var headersSent = false
+        val requestStartedAt = System.currentTimeMillis()
+        var requestMethod = "unknown"
+        var requestRange = "unknown"
         try {
             client.soTimeout = 30000
             val input = BufferedInputStream(client.getInputStream())
@@ -59,6 +63,7 @@ internal class AbyssMediaServer(private val context: Context) {
             lastActivityMs = System.currentTimeMillis()
             val line = request.first().split(' ')
             val method = line.getOrNull(0) ?: return
+            requestMethod = method
             val path = line.getOrNull(1) ?: return
             val headers = request.drop(1).mapNotNull {
                 val i = it.indexOf(':'); if (i <= 0) null else it.substring(0, i).trim().lowercase() to it.substring(i + 1).trim()
@@ -72,6 +77,7 @@ internal class AbyssMediaServer(private val context: Context) {
             val src = source ?: run { reply(client, 503, "stream unavailable"); return }
             val total = totalLength(src)
             val range = headers["range"]
+            requestRange = range ?: "full"
             val bounds = parseRange(range, total) ?: (0L to total - 1)
             if (bounds.first < 0 || bounds.second < bounds.first || bounds.first >= total) {
                 client.getOutputStream().write("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */$total\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray()); return
@@ -84,7 +90,11 @@ internal class AbyssMediaServer(private val context: Context) {
                 (if (partial) "Content-Range: bytes $start-$end/$total\r\n" else "") +
                 "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, HEAD, OPTIONS\r\nAccess-Control-Allow-Headers: Range\r\nAccess-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges, X-Resolver-Error\r\nConnection: close\r\n\r\n").toByteArray())
             headersSent = true
-            if (method == "HEAD") { out.flush(); return }
+            if (method == "HEAD") {
+                out.flush()
+                diagnostic("media_request", "$method range=$requestRange bytes=0 total=$total durationMs=${System.currentTimeMillis() - requestStartedAt}")
+                return
+            }
             var pos = start
             val buf = ByteArray(64 * 1024)
             while (pos <= end) {
@@ -95,9 +105,20 @@ internal class AbyssMediaServer(private val context: Context) {
                 pos += bytes
             }
             out.flush()
+            diagnostic("media_request", "$method range=$requestRange bytes=${end - start + 1} total=$total durationMs=${System.currentTimeMillis() - requestStartedAt}")
         } catch (e: Throwable) {
+            diagnostic("media_request_error", "$requestMethod range=$requestRange durationMs=${System.currentTimeMillis() - requestStartedAt} ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
             if (!headersSent) runCatching { reply(client, 503, "Abyss upstream unavailable") }
         }
+    }
+
+    private fun diagnostic(stage: String, detail: String) {
+        Log.i("KinoExternalResolver", "$stage: $detail")
+        context.getSharedPreferences(ResolverService.DIAG_PREFS, Context.MODE_PRIVATE).edit()
+            .putString("stage", stage)
+            .putString("detail", detail.take(240))
+            .putLong("time", System.currentTimeMillis())
+            .apply()
     }
 
     private fun readDecrypted(src: AbyssSource, offset: Long, out: ByteArray, len: Int, total: Long): Int {

@@ -11,7 +11,7 @@ class MainActivity : Activity() {
             textSize = 17f
             setPadding(36, 48, 36, 36)
             text = getString(R.string.status_title) + "\n\n" + getString(R.string.status_body) +
-                "\n\nPackage: com.myne23.abyssresolver\nProtocol: abyss\n\nDevelopment build — not yet validated."
+                "\n\nPackage: com.mmilew.kinoresolvers\nAvailable resolver: Abyss (experimental)\nPlanned: Mega\n\nDevelopment build — real playback not yet validated."
         }
         setContentView(text)
     }

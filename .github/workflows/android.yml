@@ -6,6 +6,7 @@ on:
       - feature/kino-resolvers-package
       - fix/abyss-quality-fragmented-sources
       - fix/abyss-segment-token-stream
+      - integration/legacy-direct-plus-sora
   pull_request:
   workflow_dispatch:
 permissions:

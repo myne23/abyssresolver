@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - test/mega-from-working-abyss
       - feature/kino-resolvers-package
       - fix/abyss-quality-fragmented-sources
       - fix/abyss-segment-token-stream

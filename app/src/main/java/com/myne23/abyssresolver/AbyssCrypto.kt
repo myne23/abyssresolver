@@ -11,11 +11,13 @@ internal object AbyssCrypto {
         MessageDigest.getInstance("MD5").digest(value.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
 
-    /** The reference JS keyGenerator converts numeric input to its decimal string before MD5. */
+    /** Mirrors the reference downloader's getKey(Number): each decimal digit becomes its numeric byte value. */
     fun md5NumericDigits(value: Long): String {
         require(value >= 0L) { "Expected a non-negative numeric value" }
-        val decimalText = value.toString().toByteArray(Charsets.UTF_8)
-        return MessageDigest.getInstance("MD5").digest(decimalText)
+        val digitBytes = value.toString().map { char ->
+            if (char.isDigit()) char.digitToInt().toByte() else char.code.toByte()
+        }.toByteArray()
+        return MessageDigest.getInstance("MD5").digest(digitBytes)
             .joinToString("") { "%02x".format(it) }
     }
 

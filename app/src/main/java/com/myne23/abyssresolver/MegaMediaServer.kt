@@ -73,7 +73,7 @@ internal class MegaMediaServer(private val context: Context) {
             if (method == "HEAD") { out.flush(); return }
             var pos = start
             while (pos <= end) {
-                val count = min(1024 * 1024L, end - pos + 1).toInt()
+                val count = min(2 * 1024 * 1024L, end - pos + 1).toInt()
                 val bytes = readPlain(src, pos, count)
                 if (bytes.isEmpty()) throw IllegalStateException("unexpected end of MEGA stream")
                 out.write(bytes)

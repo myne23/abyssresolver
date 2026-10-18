@@ -37,8 +37,6 @@ class ResolverService : Service() {
         }
     }
 
-    @Volatile private var megaServer: MegaMediaServer? = null
-
     private val binder = object : IExternalResolver.Stub() {
         override fun resolve(protocol: String, ref: String, callback: IExternalResolverCallback) {
             current?.set(true)
@@ -50,28 +48,14 @@ class ResolverService : Service() {
                 var finished = false
                 try {
                     promoteToForeground()
-                    val local: String
-                    when (protocol) {
-                        "abyss" -> {
-                            callback.onProgress(-1, "Preparando Abyss… / Preparing Abyss…")
-                            val parsed = AbyssSourceResolver.resolve(ref, cancelled) { p, msg -> callback.onProgress(p, msg) }
-                            if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
-                            val mediaServer = synchronized(this@ResolverService) {
-                                server ?: AbyssMediaServer(this@ResolverService).also { server = it }
-                            }
-                            local = mediaServer.register(parsed)
-                        }
-                        "mega" -> {
-                            callback.onProgress(-1, "Preparando MEGA… / Preparing MEGA…")
-                            val parsed = MegaSourceResolver.resolve(ref, cancelled) { p, msg -> callback.onProgress(p, msg) }
-                            if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
-                            val mediaServer = synchronized(this@ResolverService) {
-                                megaServer ?: MegaMediaServer(this@ResolverService).also { megaServer = it }
-                            }
-                            local = mediaServer.register(parsed)
-                        }
-                        else -> throw ResolveFailure("unsupported", "Protocolo no compatible / Unsupported protocol")
+                    if (protocol != "abyss") throw ResolveFailure("unsupported", "Protocolo no compatible / Unsupported protocol")
+                    callback.onProgress(-1, "Preparando Abyss… / Preparing Abyss…")
+                    val parsed = AbyssSourceResolver.resolve(ref, cancelled) { p, msg -> callback.onProgress(p, msg) }
+                    if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
+                    val mediaServer = synchronized(this@ResolverService) {
+                        server ?: AbyssMediaServer(this@ResolverService).also { server = it }
                     }
+                    val local = mediaServer.register(parsed)
                     val answer = JSONObject()
                         .put("url", local)
                         .put("mime", "video/mp4")
@@ -80,11 +64,11 @@ class ResolverService : Service() {
                     callback.onResult(answer)
                     finished = true
                 } catch (e: ResolveFailure) {
-                    runCatching { callback.onError(e.code, e.message ?: "No se pudo resolver la fuente / Could not resolve source") }
+                    runCatching { callback.onError(e.code, e.message ?: "No se pudo resolver Abyss / Could not resolve Abyss") }
                     finished = true
                 } catch (e: Throwable) {
-                    Log.e("AbyssResolver", "external resolve failed for protocol=$protocol", e)
-                    runCatching { callback.onError("unavailable", "El proveedor no respondió o no se pudo descifrar el video / Provider did not respond or video could not be decrypted") }
+                    Log.e("AbyssResolver", "resolve failed", e)
+                    runCatching { callback.onError("unavailable", "Abyss no respondió o no se pudo descifrar el video / Abyss did not respond or the video could not be decrypted") }
                     finished = true
                 } finally {
                     if (!finished) runCatching { callback.onError("other", "Error inesperado / Unexpected error") }

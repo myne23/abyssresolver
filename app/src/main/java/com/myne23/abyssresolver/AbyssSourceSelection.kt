@@ -12,7 +12,8 @@ internal data class AbyssSourceOption(
     val path: String,
     val url: String,
     val keys: List<String> = emptyList(),
-    val directUrl: String = ""
+    val directUrl: String = "",
+    val sub: String = ""
 )
 
 internal data class AbyssSourceSelectionResult(

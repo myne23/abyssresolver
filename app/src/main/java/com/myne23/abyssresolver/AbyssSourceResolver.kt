@@ -96,6 +96,16 @@ internal object AbyssSourceResolver {
         val rawSources = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }
         val firstDatas = mp4.optJSONArray("fristDatas") ?: JSONArray()
         val domains = mp4.optJSONArray("domains") ?: JSONArray()
+        // Diagnostic-only probe on top of the known-good #140 baseline. This does not
+        // alter source selection or transport; it exposes decrypted metadata for the unsupported layout.
+        diagnostic(
+            "abyss_mp4_shape",
+            "mp4Keys=" + mp4.keys().asSequence().toList().joinToString(",") +
+                " sources=" + sources.length() + " domains=" + domains.length() + " fristDatas=" + firstDatas.length()
+        )
+        diagnostic("abyss_sources_data", safeMetadataArray(sources).take(2600))
+        diagnostic("abyss_domains_data", safeMetadataArray(domains).take(1800))
+        diagnostic("abyss_fristDatas_data", safeMetadataArray(firstDatas).take(2600))
         val firstDataObjects = (0 until firstDatas.length()).mapNotNull { index ->
             firstDatas.optJSONObject(index)?.let { index to it }
         }
@@ -304,6 +314,38 @@ internal object AbyssSourceResolver {
         } finally {
             conn.disconnect()
         }
+    }
+
+    private fun safeMetadataArray(array: JSONArray): String {
+        val out = JSONArray()
+        for (i in 0 until array.length()) {
+            val item = array.opt(i)
+            if (item is JSONObject) {
+                val clean = JSONObject()
+                val keys = item.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val lower = key.lowercase()
+                    if (listOf("token", "cookie", "authorization", "secret", "password", "apikey", "api_key").any { it in lower }) continue
+                    val value = item.opt(key)
+                    if (value is String) {
+                        // Keep URL host/path useful for diagnosis but never persist query credentials.
+                        val safeValue = if (value.startsWith("http://", true) || value.startsWith("https://", true)) {
+                            value.substringBefore("?").substringBefore("#")
+                        } else value.take(300)
+                        clean.put(key, safeValue)
+                    } else {
+                        clean.put(key, value)
+                    }
+                }
+                out.put(clean)
+            } else if (item is String) {
+                out.put(item.substringBefore("?").substringBefore("#").take(300))
+            } else {
+                out.put(item)
+            }
+        }
+        return out.toString()
     }
 
     private fun describeMetadata(value: Any?): String {

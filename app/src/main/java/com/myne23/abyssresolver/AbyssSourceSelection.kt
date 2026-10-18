@@ -49,6 +49,19 @@ internal object AbyssSourceSelection {
         return AbyssSourceSelectionResult(selected, valid.size)
     }
 
+    fun diagnosticSummary(options: List<AbyssSourceOption>, result: AbyssSourceSelectionResult): String {
+        val perSource = options.mapIndexed { index, option ->
+            val reason = when {
+                option.path.isBlank() || option.url.isBlank() || !option.url.startsWith("https://") -> "sin path/url (missing path/url)"
+                option.partSize > 0L && option.partSize < option.size -> "fragmentada (fragmented)"
+                result.selected === option -> "elegida (selected)"
+                else -> "no es la calidad pedida (not requested quality)"
+            }
+            "#$index label=${option.label} res_id=${option.resId} size=${option.size} partSize=${option.partSize} reason=$reason keys=${option.keys.joinToString(",")}"
+        }.joinToString(" || ")
+        return "sourceCountBefore=${options.size} sourceCountAfter=${result.validCount}; $perSource"
+    }
+
     private fun rank(option: AbyssSourceOption): Long =
         (if (option.status) 1L shl 62 else 0L) + option.size.coerceAtLeast(0L).coerceAtMost((1L shl 62) - 1)
 }

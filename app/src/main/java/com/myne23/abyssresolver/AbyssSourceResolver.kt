@@ -18,7 +18,7 @@ internal object AbyssSourceResolver {
     private const val UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36"
     private val latin1: Charset = Charsets.ISO_8859_1
 
-    fun resolve(ref: String, cancelled: java.util.concurrent.atomic.AtomicBoolean, progress: (Int, String) -> Unit): AbyssSource {
+    fun resolve(ref: String, cancelled: java.util.concurrent.atomic.AtomicBoolean, diagnostic: (String, String) -> Unit = { _, _ -> }, progress: (Int, String) -> Unit): AbyssSource {
         val parts = ref.split(":", limit = 4)
         if (parts.size != 4 || parts[0] != "abyss") throw ResolveFailure("unsupported", "Referencia Abyss inválida / Invalid Abyss reference")
         val rawSlug = parts[1]

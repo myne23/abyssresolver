@@ -23,6 +23,20 @@ class MegaSourceResolverTest {
         assertEquals(MegaSource("AbCdEf123", key), MegaSourceResolver.parse("https://mega.nz/embed#!AbCdEf123!$key"))
     }
 
+    @Test fun parsesVerifiedMyTsumiVectorOne() {
+        assertEquals(
+            MegaSource("ayxnkbRA", "27Ymo-aIa5oxVtSIB8qotfVpYdu2GBv-zJpQ-7KjXWQ"),
+            MegaSourceResolver.parse("https://mega.nz/embed/ayxnkbRA#27Ymo-aIa5oxVtSIB8qotfVpYdu2GBv-zJpQ-7KjXWQ")
+        )
+    }
+
+    @Test fun parsesVerifiedMyTsumiVectorTwo() {
+        assertEquals(
+            MegaSource("EMAg2TzC", "7-Ufo4OjbEhs2ZrrgRVDbPQ5SGzQy_xypmwzXDETwaE"),
+            MegaSourceResolver.parse("https://mega.nz/embed/EMAg2TzC#7-Ufo4OjbEhs2ZrrgRVDbPQ5SGzQy_xypmwzXDETwaE")
+        )
+    }
+
     @Test fun rejectsNonMegaAndIncompleteLinks() {
         assertNull(MegaSourceResolver.parse("https://example.com/video.mp4"))
         assertNull(MegaSourceResolver.parse("https://mega.nz/file/AbCdEf123"))

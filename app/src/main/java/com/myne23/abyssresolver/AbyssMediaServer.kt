@@ -140,9 +140,23 @@ internal class AbyssMediaServer(private val context: Context) {
         // Include the chunk size in the key so cache files from older app versions cannot be misread.
         val file = File(cache, md5(src.url) + "-${chunkSize}-$chunk.bin")
         if (!file.exists()) synchronized(file.absolutePath.intern()) {
-            if (!file.exists()) fetchChunk(src, chunk, file, total)
+            if (!file.exists()) {
+                var failure: Throwable? = null
+                // Retry transient Abyss range stalls rather than aborting the whole response.
+                for (attempt in 0..2) {
+                    try {
+                        fetchChunk(src, chunk, file, total)
+                        failure = null
+                        break
+                    } catch (e: Exception) {
+                        failure = e
+                        diagnostic("upstream_chunk_retry", "chunk=$chunk attempt=${attempt + 1}/3 ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+                        if (attempt < 2) Thread.sleep(400L * (attempt + 1))
+                    }
+                }
+                if (failure != null) throw failure
+            }
         }
-        if (chunk == 0) scheduleLayoutProbe(src, total)
         val inChunk = (offset % chunkSize).toInt()
         val count = min(len, (file.length() - inChunk).toInt().coerceAtLeast(0))
         if (count <= 0) return -1
@@ -156,7 +170,7 @@ internal class AbyssMediaServer(private val context: Context) {
         val end = min(total - 1, start + chunkSize - 1)
         val expected = end - start + 1
         val conn = URL(src.url).openConnection() as HttpURLConnection
-        conn.connectTimeout = 15000; conn.readTimeout = 30000; conn.instanceFollowRedirects = true
+        conn.connectTimeout = 15000; conn.readTimeout = 20000; conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
         conn.setRequestProperty("Referer", src.referer.ifBlank { "https://player.abyssplayer.com/" })
         conn.setRequestProperty("Origin", "https://player.abyssplayer.com")

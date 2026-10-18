@@ -32,13 +32,16 @@ internal class AbyssMediaServer(private val context: Context) {
     private val chunkSize = 256 * 1024
 
     @Synchronized fun register(next: AbyssSource): String {
-        if (source?.url != next.url) {
+        val sameContent = source?.url == next.url
+        if (!sameContent) {
             probedUrl = null
             probedLength = -1L
             layoutProbeUrl = null
+            token = ByteArray(24).also(random::nextBytes).joinToString("") { "%02x".format(it) }
+        } else if (token == null) {
+            token = ByteArray(24).also(random::nextBytes).joinToString("") { "%02x".format(it) }
         }
         source = next
-        token = ByteArray(24).also(random::nextBytes).joinToString("") { "%02x".format(it) }
         if (socket == null || socket?.isClosed != false) {
             val s = ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
             socket = s

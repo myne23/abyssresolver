@@ -22,11 +22,18 @@ internal class AbyssMediaServer(private val context: Context) {
     @Volatile private var socket: ServerSocket? = null
     @Volatile private var source: AbyssSource? = null
     @Volatile private var token: String? = null
+    @Volatile private var probedUrl: String? = null
+    @Volatile private var probedLength: Long = -1L
     @Volatile var lastActivityMs: Long = System.currentTimeMillis()
         private set
-    private val chunkSize = 1024 * 1024
+    // Smaller chunks make random seeks less likely to wait for a full megabyte download.
+    private val chunkSize = 256 * 1024
 
     @Synchronized fun register(next: AbyssSource): String {
+        if (source?.url != next.url) {
+            probedUrl = null
+            probedLength = -1L
+        }
         source = next
         token = ByteArray(24).also(random::nextBytes).joinToString("") { "%02x".format(it) }
         if (socket == null || socket?.isClosed != false) {
@@ -63,8 +70,7 @@ internal class AbyssMediaServer(private val context: Context) {
             }
             if (path.substringBefore('?') != expected || (method != "GET" && method != "HEAD")) { reply(client, 404, "not found"); return }
             val src = source ?: run { reply(client, 503, "stream unavailable"); return }
-            val meta = probe(src)
-            val total = meta.first
+            val total = totalLength(src)
             val range = headers["range"]
             val bounds = parseRange(range, total) ?: (0L to total - 1)
             if (bounds.first < 0 || bounds.second < bounds.first || bounds.first >= total) {
@@ -97,7 +103,8 @@ internal class AbyssMediaServer(private val context: Context) {
     private fun readDecrypted(src: AbyssSource, offset: Long, out: ByteArray, len: Int, total: Long): Int {
         if (offset >= total) return -1
         val chunk = (offset / chunkSize).toInt()
-        val file = File(cache, md5(src.url) + "-$chunk.bin")
+        // Include the chunk size in the key so cache files from older app versions cannot be misread.
+        val file = File(cache, md5(src.url) + "-${chunkSize}-$chunk.bin")
         if (!file.exists()) synchronized(file.absolutePath.intern()) {
             if (!file.exists()) fetchChunk(src, chunk, file, total)
         }
@@ -146,6 +153,17 @@ internal class AbyssMediaServer(private val context: Context) {
 
     private fun decryptPrefix(bytes: ByteArray, length: Int, filename: String) {
         AbyssCrypto.decryptMp4Prefix(bytes, length, filename)
+    }
+
+    private fun totalLength(src: AbyssSource): Long {
+        if (probedUrl == src.url && probedLength > 0L) return probedLength
+        synchronized(this) {
+            if (probedUrl == src.url && probedLength > 0L) return probedLength
+            val length = probe(src).first
+            probedUrl = src.url
+            probedLength = length
+            return length
+        }
     }
 
     private fun probe(src: AbyssSource): Pair<Long, Boolean> {

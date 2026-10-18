@@ -393,8 +393,9 @@ internal class AbyssMediaServer(private val context: Context) {
         // Fail a stalled segment sooner so the existing retry loop can try again
         // before Kino's playback buffer is exhausted.
         conn.connectTimeout = 10000
-        // Sora segments can pause mid-transfer on the CDN; allow the retry loop to handle genuinely stalled reads.
-        conn.readTimeout = 60000
+        // Normal Sora segments usually arrive quickly. A 60s read timeout delayed retries on stalled late-file segments;
+        // use 20s so the existing retry loop can recover without leaving a seek blocked for a full minute.
+        conn.readTimeout = 20000
         conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
         // Match the reference Sora downloader's required CDN referer.

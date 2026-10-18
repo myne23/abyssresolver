@@ -28,7 +28,7 @@ class MainActivity : Activity() {
         }.getOrDefault("desconocida")
         val build = TextView(this).apply {
             textSize = 13f
-            text = "Versión instalada: $versionName"
+            text = "Versión instalada: $versionName (diagnóstico)"
         }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

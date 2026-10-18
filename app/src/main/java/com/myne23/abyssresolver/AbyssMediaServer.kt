@@ -180,7 +180,11 @@ internal class AbyssMediaServer(private val context: Context) {
                 if (failure != null) throw failure
             }
         }
-        if (src.segmented) scheduleSoraPrefetch(src, chunk + 1, total)
+        if (src.segmented) {
+            // Keep a small rolling buffer ahead of the playback position. A single stalled
+            // CDN segment should not prevent the following segments from being prepared.
+            for (ahead in 1..3) scheduleSoraPrefetch(src, chunk + ahead, total)
+        }
         val inChunk = (offset % segmentSize).toInt()
         val count = min(len, (file.length() - inChunk).toInt().coerceAtLeast(0))
         if (count <= 0) return -1
@@ -318,8 +322,10 @@ internal class AbyssMediaServer(private val context: Context) {
         val pathToken = token.replace("+", "%2B").replace("/", "%2F")
         val endpoint = "${src.url.trimEnd('/')}/sora/${src.expectedSize}/$pathToken"
         val conn = URL(endpoint).openConnection() as HttpURLConnection
-        conn.connectTimeout = 15000
-        conn.readTimeout = 20000
+        // Fail a stalled segment sooner so the existing retry loop can try again
+        // before Kino's playback buffer is exhausted.
+        conn.connectTimeout = 10000
+        conn.readTimeout = 8000
         conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
         // Match the reference Sora downloader's required CDN referer.

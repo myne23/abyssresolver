@@ -63,9 +63,24 @@ internal object AbyssSourceResolver {
         val payload = try { JSONObject(plaintext) } catch (_: Exception) {
             throw ResolveFailure("bad_response", "No se pudieron descifrar los metadatos MP4 / Could not decrypt MP4 metadata")
         }
-        val mp4 = payload.optJSONObject("mp4")
+        // Abyss variants may wrap provider metadata inside a "media" object.
+        // Normalize both shapes before selecting a source.
+        val media = payload.optJSONObject("media") ?: payload
+        val mp4 = media.optJSONObject("mp4")
+        val hls = media.optJSONObject("hls")
         if (mp4 == null) {
-            val keys = payload.keys().asSequence().take(12).toList().joinToString(",")
+            val keys = media.keys().asSequence().take(12).toList().joinToString(",")
+            if (hls != null) {
+                val hlsKeys = hls.keys().asSequence().take(12).toList().joinToString(",")
+                val hlsSources = hls.optJSONArray("sources")
+                val metadata = hls.optJSONObject("metadata")
+                val streamsCount = metadata?.optJSONArray("streams")?.length() ?: 0
+                val mediaCount = metadata?.optJSONArray("media")?.length() ?: 0
+                throw ResolveFailure(
+                    "hls_only",
+                    "Abyss parece ofrecer HLS pero no MP4 / HLS detected without MP4; mediaKeys=$keys hlsKeys=$hlsKeys hlsSources=${hlsSources?.length() ?: 0} streams=$streamsCount media=$mediaCount"
+                )
+            }
             throw ResolveFailure("unavailable", "Abyss no ofrece fuentes MP4 reconocibles / No MP4 sources object; payloadKeys=$keys")
         }
         val sources = mp4.optJSONArray("sources") ?: JSONArray()
@@ -76,6 +91,17 @@ internal object AbyssSourceResolver {
         if (candidates.isEmpty()) {
             val mp4Keys = mp4.keys().asSequence().take(12).toList().joinToString(",")
             val sourceKeys = rawSources.firstOrNull()?.keys()?.asSequence()?.take(12)?.toList()?.joinToString(",") ?: "none"
+            if (hls != null) {
+                val hlsKeys = hls.keys().asSequence().take(12).toList().joinToString(",")
+                val hlsSources = hls.optJSONArray("sources")
+                val metadata = hls.optJSONObject("metadata")
+                val streamsCount = metadata?.optJSONArray("streams")?.length() ?: 0
+                val mediaCount = metadata?.optJSONArray("media")?.length() ?: 0
+                throw ResolveFailure(
+                    "hls_only",
+                    "Abyss no tiene MP4 utilizable; HLS disponible / No usable MP4; HLS metadata found; mp4Keys=$mp4Keys sourceCount=${sources.length()} firstSourceKeys=$sourceKeys hlsKeys=$hlsKeys hlsSources=${hlsSources?.length() ?: 0} streams=$streamsCount media=$mediaCount"
+                )
+            }
             throw ResolveFailure("unavailable", "No MP4 sources matched; mp4Keys=$mp4Keys sourceCount=${sources.length()} firstSourceKeys=$sourceKeys")
         }
         val wanted = when (quality.lowercase()) { "3", "480", "480p" -> 480; "4", "720", "720p" -> 720; "5", "1080", "1080p" -> 1080; else -> Int.MAX_VALUE }

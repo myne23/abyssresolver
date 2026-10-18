@@ -223,7 +223,7 @@ internal object AbyssSourceResolver {
     ): String {
         if (cancelled.get()) return "cancelled"
         val conn = runCatching { URL(candidate).openConnection() as HttpURLConnection }.getOrElse {
-            return "probe-error-\${it.javaClass.simpleName}"
+            return "probe-error-${it.javaClass.simpleName}"
         }
         return try {
             conn.connectTimeout = 2500
@@ -243,7 +243,7 @@ internal object AbyssSourceResolver {
                 code in 200..299 && bodyLength == expectedSize -> "full-body"
                 code == HttpURLConnection.HTTP_PARTIAL && rangeTotal == partSize -> "first-part-only"
                 code in 200..299 && bodyLength == partSize -> "first-part-only"
-                code == HttpURLConnection.HTTP_PARTIAL -> "partial-total-\${rangeTotal ?: "unknown"}"
+                code == HttpURLConnection.HTTP_PARTIAL -> "partial-total-${rangeTotal ?: "unknown"}"
                 else -> "http-$code"
             }
         } catch (e: Exception) {

@@ -196,7 +196,7 @@ internal object AbyssSourceResolver {
         val directProbe = if (metadataSaysSplit) {
             probeDirectCandidate(directCandidate, referer, selected.size, selected.partSize, cancelled)
         } else "not-needed"
-        val directIsComplete = directProbe == "full-range" || directProbe == "full-body"
+        val directIsComplete = directProbe == "full-range"
         val segmented = metadataSaysSplit && !directIsComplete
         diagnostic("direct_transport_probe", "result=$directProbe expectedSize=${selected.size} partSize=${selected.partSize} useSora=$segmented")
         val segmentBase = if (segmented) soraBase else ""

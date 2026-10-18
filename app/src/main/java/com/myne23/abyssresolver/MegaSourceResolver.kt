@@ -49,7 +49,7 @@ internal object MegaSourceResolver {
 
         if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
         progress(20, "Consultando metadatos de MEGA… / Fetching MEGA metadata…")
-        val request = JSONArray().put(JSONObject().put("a", "g").put("g", 1).put("p", handle))
+        val request = JSONArray().put(JSONObject().put("a", "g").put("g", 1).put("ssl", 1).put("p", handle))
         val endpoint = URL("https://g.api.mega.co.nz/cs?id=" + System.currentTimeMillis())
         val conn = endpoint.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"

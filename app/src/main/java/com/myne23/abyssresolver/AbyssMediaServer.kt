@@ -10,7 +10,11 @@ import java.net.Socket
 import java.net.URL
 import java.net.HttpURLConnection
 import android.util.Log
+import android.util.Base64
 import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import kotlin.math.min
 
 /**
@@ -30,7 +34,7 @@ internal class AbyssMediaServer(private val context: Context) {
         private set
     // Larger chunks reduce sequential startup latency by avoiding a separate upstream request every 256 KiB.
     // Range requests still fetch only the chunk containing the requested position.
-    private val chunkSize = 1024 * 1024
+    private val chunkSize = 2 * 1024 * 1024
 
     @Synchronized fun register(next: AbyssSource): String {
         val sameContent = source?.url == next.url
@@ -176,6 +180,10 @@ internal class AbyssMediaServer(private val context: Context) {
     }
 
     private fun fetchChunk(src: AbyssSource, index: Int, target: File, total: Long) {
+        if (src.segmented) {
+            fetchSoraSegment(src, index, target, total)
+            return
+        }
         val started = System.currentTimeMillis()
         val start = index.toLong() * chunkSize
         val end = min(total - 1, start + chunkSize - 1)
@@ -237,6 +245,74 @@ internal class AbyssMediaServer(private val context: Context) {
             diagnostic("upstream_chunk_error", "chunk=$index status=$code range=$start-$end received=$received durationMs=${System.currentTimeMillis() - started} ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
             throw e
         } finally { conn.disconnect() }
+    }
+
+    /**
+     * Abyss split MP4 sources are not byte-range URLs. Each piece is requested through
+     * /sora/{totalSize}/{double-base64(AES-CTR("/mp4/{md5_id}/{res_id}/{totalSize}/2097152/{index}"))}.
+     */
+    private fun fetchSoraSegment(src: AbyssSource, index: Int, target: File, total: Long) {
+        val started = System.currentTimeMillis()
+        val segmentBytes = chunkSize.toLong()
+        val start = index.toLong() * segmentBytes
+        if (start >= total) throw IllegalStateException("segment index outside source size index=$index total=$total")
+        val expected = min(segmentBytes, total - start)
+        val plainPath = "/mp4/${src.md5Id}/${src.resId}/${src.expectedSize}/${segmentBytes}/${index}"
+        val keyHex = md5(src.expectedSize.toString())
+        val key = keyHex.toByteArray(Charsets.US_ASCII)
+        val cipher = Cipher.getInstance("AES/CTR/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(key.copyOfRange(0, 16)))
+        val encrypted = cipher.doFinal(plainPath.toByteArray(Charsets.UTF_8))
+        val first = Base64.encodeToString(encrypted, Base64.NO_WRAP).replace("=", "")
+        val token = Base64.encodeToString(first.toByteArray(Charsets.UTF_8), Base64.NO_WRAP).replace("=", "")
+        val endpoint = "${src.url.trimEnd('/')}/sora/${src.expectedSize}/$token"
+        val conn = URL(endpoint).openConnection() as HttpURLConnection
+        conn.connectTimeout = 15000
+        conn.readTimeout = 20000
+        conn.instanceFollowRedirects = true
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
+        conn.setRequestProperty("Referer", "https://abysscdn.com/")
+        diagnostic("upstream_segment_start", "index=$index expected=$expected total=$total endpoint=${endpoint.substringBefore("/sora/")}/sora/…")
+        var code = -1
+        var received = 0L
+        try {
+            code = conn.responseCode
+            if (code !in 200..299) throw IllegalStateException("Abyss segment HTTP $code index=$index")
+            val temp = File(target.parentFile, target.name + ".part")
+            conn.inputStream.use { input ->
+                temp.outputStream().use { output ->
+                    val buf = ByteArray(16384)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        output.write(buf, 0, n)
+                        received += n
+                        if (received > segmentBytes + 65536L) throw IllegalStateException("Abyss segment too large index=$index bytes=$received")
+                    }
+                }
+            }
+            if (received <= 0L) throw IllegalStateException("Abyss returned empty segment index=$index")
+            if (index < ((total + segmentBytes - 1) / segmentBytes) - 1 && received != segmentBytes) {
+                throw IllegalStateException("Abyss segment length mismatch index=$index expected=$segmentBytes actual=$received")
+            }
+            if (index == 0) {
+                val bytes = temp.readBytes()
+                val prefixLength = min(65536, bytes.size)
+                if (prefixLength < 8) throw IllegalStateException("Abyss first segment too short bytes=${bytes.size}")
+                decryptPrefix(bytes, prefixLength, src.filename)
+                val marker = String(bytes, 4, 4, Charsets.US_ASCII)
+                diagnostic("upstream_prefix_check", "transport=sora index=0 bytes=$prefixLength markerAfter=$marker")
+                if (marker != "ftyp") throw IllegalStateException("MP4 prefix check failed marker=$marker")
+                temp.writeBytes(bytes)
+            }
+            if (!temp.renameTo(target)) throw IllegalStateException("could not commit Abyss segment cache")
+            diagnostic("upstream_segment_ok", "index=$index status=$code received=$received expected=$expected durationMs=${System.currentTimeMillis() - started}")
+        } catch (e: Throwable) {
+            diagnostic("upstream_segment_error", "index=$index status=$code received=$received durationMs=${System.currentTimeMillis() - started} ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+            throw e
+        } finally {
+            conn.disconnect()
+        }
     }
 
     private fun scheduleLayoutProbe(src: AbyssSource, total: Long) {

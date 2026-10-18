@@ -6,11 +6,12 @@ android {
     namespace = "com.myne23.abyssresolver"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.myne23.abyssresolver"
+        // Stable Android package for the shared Kino resolver companion app.
+        applicationId = "com.mmilew.kinoresolvers"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 15
+        versionName = "0.2.13"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

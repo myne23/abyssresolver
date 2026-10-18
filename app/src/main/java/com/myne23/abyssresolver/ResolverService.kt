@@ -25,10 +25,29 @@ class ResolverService : Service() {
     @Volatile private var resolving = false
     @Volatile private var lastResolveAt = System.currentTimeMillis()
     private val main = Handler(Looper.getMainLooper())
+
+    private fun diagnostic(stage: String, detail: String) {
+        Log.i(TAG, "$stage: $detail")
+        val prefs = getSharedPreferences(DIAG_PREFS, MODE_PRIVATE)
+        val time = System.currentTimeMillis()
+        val stamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(time))
+        val previous = prefs.getString("history", "").orEmpty()
+        val entry = "$stamp  $stage: ${detail.take(3000)}"
+        val history = (previous.lineSequence().filter { it.isNotBlank() } + entry)
+            .toList().takeLast(20).joinToString("\n")
+        prefs.edit()
+            .putString("stage", stage)
+            .putString("detail", detail.take(240))
+            .putString("history", history)
+            .putLong("time", time)
+            .apply()
+    }
+
     private val idleCheck = object : Runnable {
         override fun run() {
             val lastRead = maxOf(lastResolveAt, server?.lastActivityMs ?: 0L)
             if (!resolving && System.currentTimeMillis() - lastRead > 10 * 60 * 1000L) {
+                diagnostic("service_idle_stop", "No active resolve or media requests")
                 server?.stop()
                 server = null
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -39,6 +58,7 @@ class ResolverService : Service() {
 
     private val binder = object : IExternalResolver.Stub() {
         override fun resolve(protocol: String, ref: String, callback: IExternalResolverCallback) {
+            diagnostic("resolve_received", "protocol=$protocol refLength=${ref.length}")
             current?.set(true)
             val cancelled = AtomicBoolean(false)
             current = cancelled
@@ -47,11 +67,17 @@ class ResolverService : Service() {
             executor.execute {
                 var finished = false
                 try {
+                    diagnostic("resolve_started", "protocol=$protocol")
                     promoteToForeground()
                     if (protocol != "abyss") throw ResolveFailure("unsupported", "Protocolo no compatible / Unsupported protocol")
                     callback.onProgress(-1, "Preparando Abyss… / Preparing Abyss…")
-                    val parsed = AbyssSourceResolver.resolve(ref, cancelled) { p, msg -> callback.onProgress(p, msg) }
+                    diagnostic("abyss_resolving", "Resolving source reference")
+                    val parsed = AbyssSourceResolver.resolve(ref, cancelled, diagnostic = { stage, detail -> diagnostic(stage, detail) }) { p, msg ->
+                        diagnostic("abyss_progress", "$p% $msg")
+                        callback.onProgress(p, msg)
+                    }
                     if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
+                    diagnostic("abyss_resolved", "Source resolved; registering local media endpoint")
                     val mediaServer = synchronized(this@ResolverService) {
                         server ?: AbyssMediaServer(this@ResolverService).also { server = it }
                     }
@@ -59,19 +85,25 @@ class ResolverService : Service() {
                     val answer = JSONObject()
                         .put("url", local)
                         .put("mime", "video/mp4")
-                        .put("expiresInSeconds", 240)
+                        .put("expiresInSeconds", 86400)
                         .toString()
                     callback.onResult(answer)
+                    diagnostic("result_sent", "Result callback sent; local URL registered")
                     finished = true
                 } catch (e: ResolveFailure) {
+                    diagnostic("resolve_error_${e.code}", e.message ?: "Resolver failure")
                     runCatching { callback.onError(e.code, e.message ?: "No se pudo resolver Abyss / Could not resolve Abyss") }
                     finished = true
                 } catch (e: Throwable) {
-                    Log.e("AbyssResolver", "resolve failed", e)
+                    Log.e(TAG, "resolve failed", e)
+                    diagnostic("resolve_exception", "${e.javaClass.simpleName}: ${e.message ?: "no message"}")
                     runCatching { callback.onError("unavailable", "Abyss no respondió o no se pudo descifrar el video / Abyss did not respond or the video could not be decrypted") }
                     finished = true
                 } finally {
-                    if (!finished) runCatching { callback.onError("other", "Error inesperado / Unexpected error") }
+                    if (!finished) {
+                        diagnostic("resolve_unfinished", "Sending generic error")
+                        runCatching { callback.onError("other", "Error inesperado / Unexpected error") }
+                    }
                     resolving = false
                     if (current === cancelled) current = null
                     main.removeCallbacks(idleCheck)
@@ -79,12 +111,24 @@ class ResolverService : Service() {
                 }
             }
         }
-        override fun cancel() { current?.set(true) }
+        override fun cancel() {
+            diagnostic("cancel_received", "Kino requested cancellation")
+            current?.set(true)
+        }
     }
 
-    override fun onBind(intent: Intent?): IBinder = binder.asBinder()
+    override fun onBind(intent: Intent?): IBinder {
+        diagnostic("service_bound", "Kino or another client bound the resolver service")
+        return binder.asBinder()
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        diagnostic("service_unbound", "Client unbound the resolver service")
+        return super.onUnbind(intent)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        diagnostic("service_started", "Foreground service start requested")
         startForegroundCompat()
         main.removeCallbacks(idleCheck)
         main.postDelayed(idleCheck, 60_000L)
@@ -95,7 +139,7 @@ class ResolverService : Service() {
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(Intent(this, ResolverService::class.java))
             else startService(Intent(this, ResolverService::class.java))
-        }
+        }.onFailure { diagnostic("foreground_start_error", it.message ?: it.javaClass.simpleName) }
     }
 
     private fun startForegroundCompat() {
@@ -112,11 +156,18 @@ class ResolverService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) startForeground(7, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         else startForeground(7, notification)
     }
+
     override fun onDestroy() {
+        diagnostic("service_destroyed", "Resolver service destroyed")
         main.removeCallbacksAndMessages(null)
         current?.set(true)
         executor.shutdownNow()
         server?.stop()
         super.onDestroy()
+    }
+
+    companion object {
+        const val TAG = "KinoExternalResolver"
+        const val DIAG_PREFS = "resolver_diagnostics"
     }
 }

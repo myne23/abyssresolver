@@ -1,17 +1,24 @@
-# Abyss Resolver for Kino
+# Kino Resolvers
 
-Android companion app for the Kino external-resolver protocol. Package: `com.myne23.abyssresolver`; protocol: `abyss`.
+Android companion app for Kino's external-resolver protocol.
 
-This repository is being developed as an independent companion for the AnimeYT Kino plugin. It is not yet a release build. Do not install or publish an APK until the resolver is tested against real playback and the Kino SDK contract.
+- Android package: `com.mmilew.kinoresolvers`
+- Implemented protocol: `abyss` (experimental)
+- Planned resolver module: Mega
+
+This repository is a development build, not a release. Do not treat the resolver as working until unit tests, Android build, Kino integration, and real playback have all been checked.
 
 ## Build
-Open this project in Android Studio with Android SDK 36 and JDK 17. The project uses Android Gradle Plugin 8.10 and Kotlin 2.2.21. A Gradle wrapper is not included yet; use a local Gradle 8.11.1 installation for command-line builds.
 
-## What it does
-- Kino binds the Android external resolver service and passes an opaque `abyss:` ref.
-- The app retrieves the public Abyss player page, parses its source payload, decrypts the media metadata, and serves the video through a loopback HTTP server.
-- The loopback server is intended to support GET, HEAD, Range, CORS, and `X-Resolver-Error`.
-- The MP4 prefix transformation and real-player interoperability must be verified before a release.
+Open the project in Android Studio with Android SDK 36 and JDK 17. The project uses Android Gradle Plugin 8.10, Kotlin 2.2.21, and Gradle 8.11.1. A Gradle wrapper is not included; use a local Gradle 8.11.1 installation for command-line builds.
 
-## Status
-Work in progress. No APK release exists yet. Never claim the app is working until unit tests, SDK validation, and real playback on a device have passed.
+## How it is intended to work
+
+1. Kino binds the Android external-resolver service and passes an opaque `abyss:` reference.
+2. The app requests the public Abyss player page and parses its source payload.
+3. It decrypts the media metadata and prepares a local loopback HTTP endpoint.
+4. Kino's player requests the local endpoint; the app fetches and caches upstream byte ranges, decrypting the MP4 prefix when required.
+
+## Current status
+
+The package and app branding have been generalized so additional resolver modules can be added. The Abyss algorithm and MP4 prefix transformation remain provisional until checked against real videos. CI results and real-device playback must be confirmed before an APK is shared as a working build.

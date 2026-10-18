@@ -298,7 +298,14 @@ internal class AbyssMediaServer(private val context: Context) {
             val code = conn.responseCode
             val total = if (code == 206) conn.getHeaderField("Content-Range")?.substringAfter('/')?.toLongOrNull()
                 else conn.contentLengthLong.takeIf { it > 0 }
-            return (total ?: throw IllegalStateException("source length unavailable")) to (code == 206)
+            val actualTotal = total ?: throw IllegalStateException("source length unavailable")
+            if (src.expectedSize > 0L && actualTotal != src.expectedSize) {
+                throw IllegalStateException(
+                    "Abyss source length mismatch expected=" + src.expectedSize +
+                        " actual=" + actualTotal + " partSize=" + src.partSize
+                )
+            }
+            return actualTotal to (code == 206)
         } finally { conn.disconnect() }
     }
 

@@ -267,14 +267,19 @@ internal class AbyssMediaServer(private val context: Context) {
         val encrypted = cipher.doFinal(plainPath.toByteArray(Charsets.UTF_8))
         val first = Base64.encodeToString(encrypted, Base64.NO_WRAP).replace("=", "")
         val token = Base64.encodeToString(first.toByteArray(Charsets.UTF_8), Base64.NO_WRAP).replace("=", "")
-        val endpoint = "${src.url.trimEnd('/')}/sora/${src.expectedSize}/$token"
+        // The token is standard Base64, not URL-safe Base64. Escape path-reserved characters
+        // so '+' and '/' remain inside the single token path segment.
+        val pathToken = token.replace("+", "%2B").replace("/", "%2F")
+        val endpoint = "${src.url.trimEnd('/')}/sora/${src.expectedSize}/$pathToken"
         val conn = URL(endpoint).openConnection() as HttpURLConnection
         conn.connectTimeout = 15000
         conn.readTimeout = 20000
         conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
-        conn.setRequestProperty("Referer", "https://abysscdn.com/")
-        diagnostic("upstream_segment_start", "index=$index expected=$expected total=$total endpoint=${endpoint.substringBefore("/sora/")}/sora/…")
+        // The verified direct Abyss media endpoint accepts the player origin/referer.
+        conn.setRequestProperty("Referer", src.referer.ifBlank { "https://player.abyssplayer.com/" })
+        conn.setRequestProperty("Origin", "https://player.abyssplayer.com")
+        diagnostic("upstream_segment_start", "index=$index expected=$expected total=$total tokenSlash=${token.count { it == '/' }} tokenPlus=${token.count { it == '+' }} endpoint=${endpoint.substringBefore("/sora/")}/sora/…")
         var code = -1
         var received = 0L
         try {

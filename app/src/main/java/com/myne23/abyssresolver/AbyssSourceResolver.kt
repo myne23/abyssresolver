@@ -38,7 +38,11 @@ internal object AbyssSourceResolver {
         val embedUrl = try { URL(embed) } catch (_: Exception) {
             throw ResolveFailure("unsupported", "URL de Abyss inválida / Invalid Abyss URL")
         }
-        if (embedUrl.protocol != "https" || embedUrl.host != "player.abyssplayer.com") throw ResolveFailure("unsupported", "El enlace no pertenece a AbyssPlayer / Link is not from AbyssPlayer")
+        // AnimeYT/MyTsumi may publish either the apex host or the player subdomain.
+        // Keep the exact URL/path; only relax host validation, not the playback transport.
+        if (embedUrl.protocol != "https" || !embedUrl.host.equals("player.abyssplayer.com", true) && !embedUrl.host.equals("abyssplayer.com", true)) {
+            throw ResolveFailure("unsupported", "El enlace no pertenece a AbyssPlayer / Link is not from AbyssPlayer")
+        }
 
         progress(8, "Abriendo reproductor Abyss… / Opening Abyss player…")
         val html = getText(embed, referer, cancelled)

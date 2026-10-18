@@ -199,7 +199,7 @@ internal object AbyssSourceResolver {
         progress(88, "Preparando transmisión segura… / Preparing stream…")
         if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
         progress(100, "Fuente encontrada / Source found")
-        diagnostic("source_transport", if (segmented) "transport=abyss-sora size=${selected.size} resId=${selected.resId} md5Id=$md5Id base=$segmentBase" else "transport=direct url=$finalUrl")
+        diagnostic("source_transport", if (segmented) "transport=abyss-sora size=${selected.size} resId=${selected.resId} md5Id=$md5Id domain=${rawDomain.take(100)} sub=${selected.sub} domainSuffix=${domainSuffix.take(100)} base=$segmentBase" else "transport=direct url=$finalUrl")
         return AbyssSource(finalUrl, filename, referer, selected.size, selected.partSize, segmented, md5Id, selected.resId)
     }
 

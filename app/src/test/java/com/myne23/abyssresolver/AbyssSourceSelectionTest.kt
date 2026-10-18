@@ -58,6 +58,12 @@ class AbyssSourceSelectionTest {
         assertEquals(9, option.keys.size)
         assertTrue(option.keys.contains("partSize"))
         assertTrue(option.keys.contains("sub"))
+        val options = listOf(option)
+        val result = AbyssSourceSelection.select(options, "3")
+        val summary = AbyssSourceSelection.diagnosticSummary(options, result)
+        assertTrue(summary.contains("sourceCountBefore=1 sourceCountAfter=1"))
+        option.keys.forEach { key -> assertTrue("Missing diagnostic key: $key", summary.contains(key)) }
+        assertTrue(summary.contains("reason=elegida (selected)"))
     }
 
     @Test fun requestedQualityFallsBackDownward() {

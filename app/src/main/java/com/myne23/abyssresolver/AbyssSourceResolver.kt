@@ -85,13 +85,42 @@ internal object AbyssSourceResolver {
         }
         val sources = mp4.optJSONArray("sources") ?: JSONArray()
         val rawSources = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }
-        val candidates = rawSources.filter {
-            it.optString("url").startsWith("https://") && it.optString("path").isNotBlank()
+        val options = rawSources.map { json ->
+            AbyssSourceOption(
+                label = json.optString("label").takeUnless { it == "null" }.orEmpty(),
+                resId = json.optInt("res_id", 0),
+                size = json.optLong("size", 0L),
+                partSize = json.optLong("partSize", 0L),
+                status = json.optBoolean("status", false),
+                path = json.optString("path").takeUnless { it == "null" }.orEmpty(),
+                url = json.optString("url").takeUnless { it == "null" }.orEmpty(),
+                keys = json.keys().asSequence().toList()
+            )
         }
-        if (candidates.isEmpty()) {
-            val mp4Keys = mp4.keys().asSequence().take(12).toList().joinToString(",")
-            val firstSource = rawSources.firstOrNull()
-            val sourceKeys = firstSource?.keys()?.asSequence()?.toList()?.joinToString(",") ?: "none"
+        val selection = AbyssSourceSelection.select(options, quality)
+        val selected = selection.selected
+        val perSource = options.mapIndexed { index, option ->
+            val reason = when {
+                option.path.isBlank() || option.url.isBlank() || !option.url.startsWith("https://") -> "sin path/url (missing path/url)"
+                option.partSize > 0L && option.partSize < option.size -> "fragmentada (fragmented)"
+                selected === option -> "elegida (selected)"
+                else -> "no es la calidad pedida (not requested quality)"
+            }
+            "#$index label=${option.label} res_id=${option.resId} size=${option.size} partSize=${option.partSize} reason=$reason keys=${option.keys.joinToString(",")}"
+        }.joinToString(" || ")
+        val diagnosticSummary = "sourceCountBefore=${options.size} sourceCountAfter=${selection.validCount}; $perSource"
+        diagnostic("source_selection", diagnosticSummary)
+        if (selected == null) {
+            val onlyFragmented = options.isNotEmpty() && options.all {
+                it.path.isNotBlank() && it.url.startsWith("https://") && it.partSize > 0L && it.partSize < it.size
+            }
+            if (onlyFragmented) {
+                throw ResolveFailure(
+                    "unsupported",
+                    "Este contenido solo está disponible en un formato fragmentado que todavía no se soporta / This content is only available in a split format that is not supported yet"
+                )
+            }
+            val mp4Keys = mp4.keys().asSequence().toList().joinToString(",")
             val domains = describeMetadata(mp4.opt("domains"))
             val firstDatas = describeMetadata(mp4.opt("fristDatas"))
             if (hls != null) {
@@ -102,20 +131,16 @@ internal object AbyssSourceResolver {
                 val mediaCount = metadata?.optJSONArray("media")?.length() ?: 0
                 throw ResolveFailure(
                     "hls_only",
-                    "Abyss no tiene MP4 utilizable; HLS disponible / No usable MP4; HLS metadata found; mp4Keys=$mp4Keys sourceCount=${sources.length()} firstSourceKeys=$sourceKeys hlsKeys=$hlsKeys hlsSources=${hlsSources?.length() ?: 0} streams=$streamsCount media=$mediaCount"
+                    "Abyss no tiene MP4 utilizable; HLS disponible / No usable MP4; HLS metadata found; mp4Keys=$mp4Keys sourceCountBefore=${options.size} sourceCountAfter=0 hlsKeys=$hlsKeys hlsSources=${hlsSources?.length() ?: 0} streams=$streamsCount media=$mediaCount"
                 )
             }
             throw ResolveFailure(
                 "unavailable",
-                "No MP4 sources matched; mp4Keys=$mp4Keys sourceCount=${sources.length()} firstSourceKeys=$sourceKeys " +
-                    "domains=$domains fristDatas=$firstDatas firstSource=${describeMetadata(firstSource)}"
+                "No hay fuentes MP4 válidas / No valid MP4 sources; sourceCountBefore=${options.size} sourceCountAfter=0 domains=$domains fristDatas=$firstDatas"
             )
         }
-        val wanted = when (quality.lowercase()) { "3", "480", "480p" -> 480; "4", "720", "720p" -> 720; "5", "1080", "1080p" -> 1080; else -> Int.MAX_VALUE }
-        val source = candidates.sortedByDescending { qualityHeight(it) }.firstOrNull { qualityHeight(it) <= wanted }
-            ?: candidates.maxByOrNull { qualityHeight(it) }!!
-        val base = source.getString("url").trimEnd('/')
-        val path = source.getString("path").trimStart('/')
+        val base = selected.url.trimEnd('/')
+        val path = selected.path.trimStart('/')
         val finalUrl = "$base/$path"
         val filename = URL(finalUrl).path.substringAfterLast('/').ifBlank { path.substringAfterLast('/') }
         if (!finalUrl.startsWith("https://")) throw ResolveFailure("unsupported", "La fuente no usa HTTPS / Source is not HTTPS")

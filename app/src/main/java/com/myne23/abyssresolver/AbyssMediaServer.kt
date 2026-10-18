@@ -180,6 +180,9 @@ internal class AbyssMediaServer(private val context: Context) {
             val inChunk = (offset % segmentSize).toInt()
             val deadline = System.currentTimeMillis() + 90_000L
             while (true) {
+                // A failed prefetch may leave no committed .bin file. Re-enter the scheduler
+                // so a transient late-segment failure can recover instead of waiting until timeout.
+                if (!file.exists()) scheduleSoraPrefetch(src, chunk, total)
                 if (file.exists()) {
                     val available = file.length() - inChunk
                     val count = min(len.toLong(), available).toInt()
@@ -288,12 +291,17 @@ internal class AbyssMediaServer(private val context: Context) {
                     }
                     if (failure != null) {
                         diagnostic("upstream_prefetch_failed", "index=$index ${failure.javaClass.simpleName}: ${failure.message ?: "no message"}")
+                        // Do not leave a partial segment looking like usable buffered data.
+                        File(target.parentFile, target.name + ".part").delete()
                     } else {
                         diagnostic("upstream_prefetch_ok", "index=$index")
                     }
                 }
             } catch (e: Exception) {
                 diagnostic("upstream_prefetch_error", "index=$index ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+            } finally {
+                // Allow a later read to retry this segment after transient failures.
+                soraPrefetchScheduled.remove(target.absolutePath)
             }
         }, "abyss-sora-prefetch-$index").apply { isDaemon = true; start() }
     }

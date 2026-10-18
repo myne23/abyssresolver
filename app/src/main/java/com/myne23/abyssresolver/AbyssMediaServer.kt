@@ -38,7 +38,8 @@ internal class AbyssMediaServer(private val context: Context) {
     private val SORA_SEGMENT_SIZE = 2L * 1024L * 1024L
 
     @Synchronized fun register(next: AbyssSource): String {
-        val sameContent = source?.url == next.url
+        // A CDN host is reused across episodes; compare the full source metadata, not just the host URL.
+        val sameContent = source == next
         if (!sameContent) {
             probedUrl = null
             probedLength = -1L

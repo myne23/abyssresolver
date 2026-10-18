@@ -35,6 +35,7 @@ internal class AbyssMediaServer(private val context: Context) {
     // Larger chunks reduce sequential startup latency by avoiding a separate upstream request every 256 KiB.
     // Range requests still fetch only the chunk containing the requested position.
     private val chunkSize = 2 * 1024 * 1024
+    private val SORA_SEGMENT_SIZE = 2L * 1024L * 1024L
 
     @Synchronized fun register(next: AbyssSource): String {
         val sameContent = source?.url == next.url
@@ -152,7 +153,7 @@ internal class AbyssMediaServer(private val context: Context) {
     private fun readDecrypted(src: AbyssSource, offset: Long, out: ByteArray, len: Int, total: Long): Int {
         if (offset >= total) return -1
         // Sora segment boundaries come from Abyss metadata (partSize), not our local read buffer size.
-        val segmentSize = if (src.segmented) src.partSize.takeIf { it > 0L } ?: chunkSize.toLong() else chunkSize.toLong()
+        val segmentSize = if (src.segmented) SORA_SEGMENT_SIZE else chunkSize.toLong()
         val chunk = (offset / segmentSize).toInt()
         // Include the actual upstream segment size in the cache key.
         val file = File(cache, md5(src.url + "|" + src.filename) + "-${segmentSize}-$chunk.bin")
@@ -255,12 +256,12 @@ internal class AbyssMediaServer(private val context: Context) {
      */
     private fun fetchSoraSegment(src: AbyssSource, index: Int, target: File, total: Long) {
         val started = System.currentTimeMillis()
-        val segmentBytes = src.partSize.takeIf { it > 0L } ?: chunkSize.toLong()
+        val segmentBytes = SORA_SEGMENT_SIZE
         val start = index.toLong() * segmentBytes
         if (start >= total) throw IllegalStateException("segment index outside source size index=$index total=$total")
         val expected = min(segmentBytes, total - start)
         val plainPath = "/mp4/${src.md5Id}/${src.resId}/${src.expectedSize}/${segmentBytes}/${index}"
-        val keyHex = md5(src.expectedSize.toString())
+        val keyHex = AbyssCrypto.md5NumericDigits(src.expectedSize)
         val key = keyHex.toByteArray(Charsets.US_ASCII)
         val cipher = Cipher.getInstance("AES/CTR/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(key.copyOfRange(0, 16)))

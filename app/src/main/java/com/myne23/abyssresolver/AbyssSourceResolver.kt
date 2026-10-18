@@ -178,24 +178,23 @@ internal object AbyssSourceResolver {
                 "No hay fuentes MP4 válidas / No valid MP4 sources; sourceCountBefore=${options.size} sourceCountAfter=0 domains=$domains fristDatas=$firstDatas"
             )
         }
-        // Abyss's MP4 API exposes the full size in metadata, but the source URL may only return the first part.
-        // Use the documented /sora/{size}/{encrypted-token} endpoint for split MP4 sources.
-        // Absolute source URLs already identify the per-video Abyss CDN host (e.g. https://<host>.sssrr.org).
-        // Do not require a separate "sub" field: some metadata shapes omit it even though partSize proves this is split.
+        // Match the reference client exactly: buildSegmentUrl(domains.firstOrNull(), source.sub)
+        // returns https://<sub>.<domain suffix>, where suffix is everything after the first dot.
         val path = selected.path.trimStart('/')
         val directCandidate = selected.directUrl.ifBlank { "${selected.url.trimEnd('/')}/$path" }
-        // Sora metadata has no per-file path: the CDN host plus the subdomain identify
-        // the source, and the actual MP4 is addressed by generated /sora/ tokens.
+        val rawDomain = domains.optString(0).takeUnless { it == "null" }.orEmpty()
+            .removePrefix("https://").removePrefix("http://").trim().trimEnd('/')
+        val domainSuffix = rawDomain.substringAfter(".", "")
+        val soraBase = if (selected.sub.isNotBlank() && domainSuffix.isNotBlank()) {
+            "https://${selected.sub}.$domainSuffix"
+        } else ""
         // Keep the legacy byte-range route for sources that expose a real path.
-        // Abyss's reference client builds the Sora base from the source subdomain and
-        // the CDN domain. The firstDatas.url may also contain a legacy-looking path;
-        // that path is not proof that this is a byte-range MP4 when partSize is present.
-        val segmented = selected.sub.isNotBlank() &&
+        val segmented = soraBase.isNotBlank() &&
             selected.partSize > 0L && selected.size > selected.partSize &&
-            selected.url.startsWith("https://") && md5Id.isNotBlank() && selected.resId > 0
-        val segmentBase = if (segmented) selected.url.trimEnd('/') else ""
+            md5Id.isNotBlank() && selected.resId > 0
+        val segmentBase = if (segmented) soraBase else ""
         val finalUrl = if (segmented) segmentBase else directCandidate
-        val filename = if (segmented) path.substringAfterLast('/').ifBlank { URL(selected.url.ifBlank { finalUrl }).path.substringAfterLast('/').ifBlank { "$md5Id-${selected.resId}.mp4" } } else URL(finalUrl).path.substringAfterLast('/').ifBlank { path.substringAfterLast('/') }
+        val filename = if (segmented) "$md5Id-${selected.resId}.mp4" else URL(finalUrl).path.substringAfterLast('/').ifBlank { path.substringAfterLast('/') }
         if (!finalUrl.startsWith("https://")) throw ResolveFailure("unsupported", "La fuente no usa HTTPS / Source is not HTTPS")
         progress(88, "Preparando transmisión segura… / Preparing stream…")
         if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")

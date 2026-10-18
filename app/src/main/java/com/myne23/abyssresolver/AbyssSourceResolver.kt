@@ -179,13 +179,13 @@ internal object AbyssSourceResolver {
         }
         // Abyss's MP4 API exposes the full size in metadata, but the source URL may only return the first part.
         // Use the documented /sora/{size}/{encrypted-token} endpoint for split MP4 sources.
-        val domain = domains.optString(0).orEmpty().trim().trimEnd('/')
-        val segmentBase = if (selected.sub.isNotBlank() && domain.contains(".")) {
-            "https://${selected.sub}.${domain.substringAfter(".")}"
-        } else ""
+        // Absolute source URLs already identify the per-video Abyss CDN host (e.g. https://<host>.sssrr.org).
+        // Do not require a separate "sub" field: some metadata shapes omit it even though partSize proves this is split.
         val path = selected.path.trimStart('/')
         val directCandidate = selected.directUrl.ifBlank { "${selected.url.trimEnd('/')}/$path" }
-        val segmented = segmentBase.startsWith("https://") && selected.size > 0L && md5Id.isNotBlank() && selected.resId > 0
+        val segmented = selected.partSize > 0L && selected.size > selected.partSize &&
+            selected.url.startsWith("https://") && md5Id.isNotBlank() && selected.resId > 0
+        val segmentBase = if (segmented) selected.url.trimEnd('/') else ""
         val finalUrl = if (segmented) segmentBase else directCandidate
         val filename = if (segmented) path.substringAfterLast('/').ifBlank { URL(selected.url.ifBlank { finalUrl }).path.substringAfterLast('/').ifBlank { "$md5Id-${selected.resId}.mp4" } } else URL(finalUrl).path.substringAfterLast('/').ifBlank { path.substringAfterLast('/') }
         if (!finalUrl.startsWith("https://")) throw ResolveFailure("unsupported", "La fuente no usa HTTPS / Source is not HTTPS")

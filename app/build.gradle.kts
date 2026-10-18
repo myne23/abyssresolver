@@ -6,11 +6,11 @@ android {
     namespace = "com.myne23.abyssresolver"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.mmilew.abyssresolver"
+        applicationId = "com.mmilew.kinoresolvers"
         minSdk = 24
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.2.1"
+        versionCode = 4
+        versionName = "0.2.2-mega-test"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

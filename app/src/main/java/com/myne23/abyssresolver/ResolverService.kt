@@ -45,7 +45,7 @@ class ResolverService : Service() {
 
     private val idleCheck = object : Runnable {
         override fun run() {
-            val lastRead = maxOf(lastResolveAt, server?.lastActivityMs ?: 0L)
+            val lastRead = maxOf(lastResolveAt, server?.lastActivityMs ?: 0L, MegaLocalServer.lastActivityMs)
             if (!resolving && System.currentTimeMillis() - lastRead > 10 * 60 * 1000L) {
                 diagnostic("service_idle_stop", "No active resolve or media requests")
                 server?.stop()
@@ -69,6 +69,22 @@ class ResolverService : Service() {
                 try {
                     diagnostic("resolve_started", "protocol=$protocol")
                     promoteToForeground()
+                    if (protocol == "mega") {
+                        callback.onProgress(-1, "Preparando MEGA… / Preparing MEGA…")
+                        diagnostic("mega_resolving", "Parsing MEGA file reference")
+                        val mega = MegaSourceResolver.parse(ref)
+                            ?: throw ResolveFailure("unsupported", "Enlace MEGA inválido / Invalid MEGA link")
+                        val local = MegaLocalServer.start(mega.handle, mega.key)
+                        val answer = JSONObject()
+                            .put("url", local)
+                            .put("mime", "video/mp4")
+                            .put("expiresInSeconds", 86400)
+                            .toString()
+                        callback.onResult(answer)
+                        diagnostic("mega_resolved", "MEGA local range endpoint registered")
+                        finished = true
+                        return@execute
+                    }
                     if (protocol != "abyss") throw ResolveFailure("unsupported", "Protocolo no compatible / Unsupported protocol")
                     callback.onProgress(-1, "Preparando Abyss… / Preparing Abyss…")
                     diagnostic("abyss_resolving", "Resolving source reference")
@@ -163,6 +179,7 @@ class ResolverService : Service() {
         current?.set(true)
         executor.shutdownNow()
         server?.stop()
+        MegaLocalServer.stop()
         super.onDestroy()
     }
 

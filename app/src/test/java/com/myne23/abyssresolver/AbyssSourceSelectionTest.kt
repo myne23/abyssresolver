@@ -95,13 +95,14 @@ class AbyssSourceSelectionTest {
         assertEquals(1, result.validCount)
     }
 
-    @Test fun splitOnlyWithResolvedDirectUrlsStillReportsUnsupported() {
+    @Test fun splitOnlyWithResolvedDirectUrlsCanBeSelectedForRuntimeValidation() {
         val option = source("1080p", 5, 300L, partSize = 100L, path = "", url = "").copy(
             directUrl = "https://media.example.test/video/clip.mp4"
         )
         val result = AbyssSourceSelection.select(listOf(option), "best")
-        assertNull(result.selected)
-        assertEquals("unsupported", result.failureCode)
+        assertNotNull(result.selected)
+        assertEquals(1, result.validCount)
+        assertNull(result.failureCode)
     }
 
 }

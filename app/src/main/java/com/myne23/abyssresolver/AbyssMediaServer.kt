@@ -359,7 +359,14 @@ internal class AbyssMediaServer(private val context: Context) {
         if (probedUrl == src.url && probedLength > 0L) return probedLength
         synchronized(this) {
             if (probedUrl == src.url && probedLength > 0L) return probedLength
-            val length = probe(src).first
+            // Split Abyss/Sora URLs expose individual encrypted segments, not the full MP4.
+            // Their full content length is already supplied by the decrypted metadata.
+            val length = if (src.segmented) {
+                src.expectedSize.takeIf { it > 0L }
+                    ?: throw IllegalStateException("Sora source length unavailable in metadata")
+            } else {
+                probe(src).first
+            }
             probedUrl = src.url
             probedLength = length
             return length

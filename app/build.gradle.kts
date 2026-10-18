@@ -10,8 +10,8 @@ android {
         applicationId = "com.mmilew.kinoresolvers"
         minSdk = 24
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.2.4"
+        versionCode = 7
+        versionName = "0.2.5"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

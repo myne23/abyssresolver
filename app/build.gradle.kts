@@ -6,7 +6,7 @@ android {
     namespace = "com.myne23.abyssresolver"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.myne23.abyssresolver"
+        applicationId = "com.mmilew.abyssresolver"
         minSdk = 24
         targetSdk = 35
         versionCode = 2

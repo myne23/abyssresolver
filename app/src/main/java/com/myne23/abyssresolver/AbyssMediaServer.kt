@@ -35,7 +35,13 @@ internal class AbyssMediaServer(private val context: Context) {
     // Larger chunks reduce sequential startup latency by avoiding a separate upstream request every 256 KiB.
     // Range requests still fetch only the chunk containing the requested position.
     private val chunkSize = 2 * 1024 * 1024
-    private val SORA_SEGMENT_SIZE = 2L * 1024L * 1024L
+    private val DEFAULT_SORA_SEGMENT_SIZE = 2L * 1024L * 1024L
+
+    // Abyss's token path embeds the segment size advertised by fristDatas.partSize.
+    // It can differ between videos; hardcoding 2 MiB produces valid-looking tokens for
+    // the wrong endpoint and the CDN answers 404 for every segment.
+    private fun soraSegmentSize(src: AbyssSource): Long =
+        src.partSize.takeIf { it > 0L } ?: DEFAULT_SORA_SEGMENT_SIZE
     // Track segment prefetches so repeated player reads don't start duplicate workers.
     private val soraPrefetchScheduled = java.util.Collections.newSetFromMap(
         java.util.concurrent.ConcurrentHashMap<String, Boolean>()
@@ -158,7 +164,7 @@ internal class AbyssMediaServer(private val context: Context) {
     private fun readDecrypted(src: AbyssSource, offset: Long, out: ByteArray, len: Int, total: Long): Int {
         if (offset >= total) return -1
         // Sora segment boundaries come from Abyss metadata (partSize), not our local read buffer size.
-        val segmentSize = if (src.segmented) SORA_SEGMENT_SIZE else chunkSize.toLong()
+        val segmentSize = if (src.segmented) soraSegmentSize(src) else chunkSize.toLong()
         val chunk = (offset / segmentSize).toInt()
         // Include the actual upstream segment size in the cache key.
         val file = File(cache, md5(src.url + "|" + src.filename) + "-${segmentSize}-$chunk.bin")
@@ -198,7 +204,7 @@ internal class AbyssMediaServer(private val context: Context) {
      * so preparing the next 2 MiB while the current one is consumed hides intermittent CDN stalls.
      */
     private fun scheduleSoraPrefetch(src: AbyssSource, index: Int, total: Long) {
-        val segmentSize = SORA_SEGMENT_SIZE
+        val segmentSize = soraSegmentSize(src)
         if (index < 0 || index.toLong() * segmentSize >= total) return
         val target = File(cache, md5(src.url + "|" + src.filename) + "-${segmentSize}-${index}.bin")
         if (target.exists() || !soraPrefetchScheduled.add(target.absolutePath)) return
@@ -305,7 +311,7 @@ internal class AbyssMediaServer(private val context: Context) {
      */
     private fun fetchSoraSegment(src: AbyssSource, index: Int, target: File, total: Long) {
         val started = System.currentTimeMillis()
-        val segmentBytes = SORA_SEGMENT_SIZE
+        val segmentBytes = soraSegmentSize(src)
         val start = index.toLong() * segmentBytes
         if (start >= total) throw IllegalStateException("segment index outside source size index=$index total=$total")
         val expected = min(segmentBytes, total - start)

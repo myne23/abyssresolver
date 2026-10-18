@@ -308,11 +308,12 @@ internal class AbyssMediaServer(private val context: Context) {
                 val bytes = temp.readBytes()
                 val prefixLength = min(65536, bytes.size)
                 if (prefixLength < 8) throw IllegalStateException("Abyss first segment too short bytes=${bytes.size}")
-                decryptPrefix(bytes, prefixLength, src.filename)
+                // Sora segment bodies are already MP4 bytes. The reference downloader
+                // concatenates them verbatim; AES-CTR is only used to construct the URL token.
+                // Decrypting this prefix again corrupts the MP4 header.
                 val marker = String(bytes, 4, 4, Charsets.US_ASCII)
-                diagnostic("upstream_prefix_check", "transport=sora index=0 bytes=$prefixLength markerAfter=$marker")
-                if (marker != "ftyp") throw IllegalStateException("MP4 prefix check failed marker=$marker")
-                temp.writeBytes(bytes)
+                diagnostic("upstream_prefix_check", "transport=sora index=0 bytes=$prefixLength markerRaw=$marker")
+                if (marker != "ftyp") throw IllegalStateException("MP4 prefix check failed rawMarker=$marker")
             }
             if (!temp.renameTo(target)) throw IllegalStateException("could not commit Abyss segment cache")
             diagnostic("upstream_segment_ok", "index=$index status=$code received=$received expected=$expected durationMs=${System.currentTimeMillis() - started}")

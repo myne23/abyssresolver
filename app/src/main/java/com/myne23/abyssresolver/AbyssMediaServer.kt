@@ -173,10 +173,9 @@ internal class AbyssMediaServer(private val context: Context) {
             // Start/continue the segment download in the background and serve bytes
             // from its growing .part file as soon as they arrive.
             if (!file.exists()) scheduleSoraPrefetch(src, chunk, total)
-            // Start the following Sora segment immediately, not only after this segment
-            // finishes. Otherwise a seek to an uncached position downloads segment N,
-            // then waits for N+1 to start, making playback appear stalled at boundaries.
-            scheduleSoraPrefetch(src, chunk + 1, total)
+            // Avoid competing with the requested segment during startup and seeking.
+            // The next segment is scheduled once this segment has made substantial progress,
+            // or immediately after it is already cached (below), preserving ahead-of-playback buffering.
             val part = File(file.parentFile, file.name + ".part")
             val inChunk = (offset % segmentSize).toInt()
             val deadline = System.currentTimeMillis() + 90_000L
@@ -190,6 +189,12 @@ internal class AbyssMediaServer(private val context: Context) {
                     }
                 }
                 if (part.exists()) {
+                    // Start the next segment after ~2/3 of the current one has arrived.
+                    // This gives the active seek/start request priority instead of splitting
+                    // bandwidth evenly between two large Sora downloads from byte zero.
+                    if (part.length() >= (segmentSize * 2L / 3L)) {
+                        scheduleSoraPrefetch(src, chunk + 1, total)
+                    }
                     val available = part.length() - inChunk
                     // Never expose the MP4 header until enough bytes exist to validate it.
                     val prefixReady = chunk != 0 || part.length() >= 65536L

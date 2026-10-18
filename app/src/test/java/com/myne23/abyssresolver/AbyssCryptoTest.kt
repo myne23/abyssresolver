@@ -13,12 +13,9 @@ class AbyssCryptoTest {
         assertEquals("d41d8cd98f00b204e9800998ecf8427e", AbyssCrypto.md5Hex(""))
     }
 
-    @Test fun numericDigitMd5UsesDigitValuesRatherThanUtf8Text() {
-        val rawDigits = byteArrayOf(2, 9, 3, 5, 4, 4, 9, 7, 0)
-        val expected = MessageDigest.getInstance("MD5").digest(rawDigits)
-            .joinToString("") { "%02x".format(it) }
+    @Test fun numericMd5MatchesReferenceJavascriptStringConversion() {
+        val expected = AbyssCrypto.md5Hex("293544970")
         assertEquals(expected, AbyssCrypto.md5NumericDigits(293544970L))
-        assertTrue(expected != AbyssCrypto.md5Hex("293544970"))
     }
 
     @Test fun mp4PrefixDecryptsAndLeavesBytesAfterPrefixUntouched() {

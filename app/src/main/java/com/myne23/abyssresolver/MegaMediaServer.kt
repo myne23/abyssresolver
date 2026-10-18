@@ -73,7 +73,7 @@ internal class MegaMediaServer(private val context: Context) {
             if (method == "HEAD") { out.flush(); return }
             var pos = start
             while (pos <= end) {
-                val count = min(64 * 1024L, end - pos + 1).toInt()
+                val count = min(1024 * 1024L, end - pos + 1).toInt()
                 val bytes = readPlain(src, pos, count)
                 if (bytes.isEmpty()) throw IllegalStateException("unexpected end of MEGA stream")
                 out.write(bytes)
@@ -89,7 +89,7 @@ internal class MegaMediaServer(private val context: Context) {
         val aligned = offset - (offset % 16L)
         val wanted = min(src.size - aligned, length.toLong() + (offset - aligned)).toInt()
         val conn = URL(src.url).openConnection() as HttpURLConnection
-        conn.connectTimeout = 15000; conn.readTimeout = 30000; conn.instanceFollowRedirects = true
+        conn.connectTimeout = 15000; conn.readTimeout = 45000; conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
         conn.setRequestProperty("Range", "bytes=$aligned-${aligned + wanted - 1}")
         val encrypted = try {

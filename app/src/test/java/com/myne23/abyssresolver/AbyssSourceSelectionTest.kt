@@ -21,10 +21,10 @@ class AbyssSourceSelectionTest {
     )
 
     @Test fun requestedResolutionsChooseMatchingCompleteFile() {
-        assertEquals(126328577L, AbyssSourceSelection.select(realSources, "3").selected?.size)
-        assertEquals(245926117L, AbyssSourceSelection.select(realSources, "4").selected?.size)
-        assertEquals(327032461L, AbyssSourceSelection.select(realSources, "5").selected?.size)
-        assertEquals(327032461L, AbyssSourceSelection.select(realSources, "best").selected?.size)
+        assertEquals(126328577L, AbyssSourceSelection.select(realSources, "3").selected!!.size)
+        assertEquals(245926117L, AbyssSourceSelection.select(realSources, "4").selected!!.size)
+        assertEquals(327032461L, AbyssSourceSelection.select(realSources, "5").selected!!.size)
+        assertEquals(327032461L, AbyssSourceSelection.select(realSources, "best").selected!!.size)
         assertEquals(3, AbyssSourceSelection.select(realSources, "best").validCount)
     }
 
@@ -41,9 +41,9 @@ class AbyssSourceSelectionTest {
         val oldEmbed = listOf(
             source("480p", 3, 100L), source("720p", 4, 200L), source("1080p", 5, 300L)
         )
-        assertEquals(100L, AbyssSourceSelection.select(oldEmbed, "3").selected?.size)
-        assertEquals(200L, AbyssSourceSelection.select(oldEmbed, "4").selected?.size)
-        assertEquals(300L, AbyssSourceSelection.select(oldEmbed, "5").selected?.size)
+        assertEquals(100L, AbyssSourceSelection.select(oldEmbed, "3").selected!!.size)
+        assertEquals(200L, AbyssSourceSelection.select(oldEmbed, "4").selected!!.size)
+        assertEquals(300L, AbyssSourceSelection.select(oldEmbed, "5").selected!!.size)
     }
 
     @Test fun missingPathOrUrlIsExcluded() {
@@ -72,7 +72,7 @@ class AbyssSourceSelectionTest {
     @Test fun requestedQualityFallsBackDownward() {
         val result = AbyssSourceSelection.select(listOf(source("480p", 3, 100L), source("720p", 4, 200L)), "5")
         assertNotNull(result.selected)
-        assertEquals(4, result.selected?.resId)
+        assertEquals(4, result.selected!!.resId)
     }
 
     @Test fun duplicatesPreferWorkingThenLargerSource() {
@@ -81,6 +81,6 @@ class AbyssSourceSelectionTest {
             source("1080p", 5, 300L, status = true),
             source("1080p", 5, 700L, status = true)
         )
-        assertEquals(700L, AbyssSourceSelection.select(options, "5").selected?.size)
+        assertEquals(700L, AbyssSourceSelection.select(options, "5").selected!!.size)
     }
 }

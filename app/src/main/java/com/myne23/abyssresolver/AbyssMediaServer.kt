@@ -32,9 +32,9 @@ internal class AbyssMediaServer(private val context: Context) {
     @Volatile private var layoutProbeUrl: String? = null
     @Volatile var lastActivityMs: Long = System.currentTimeMillis()
         private set
-    // Larger chunks reduce sequential startup latency by avoiding a separate upstream request every 256 KiB.
-    // Range requests still fetch only the chunk containing the requested position.
-    private val chunkSize = 1024 * 1024
+    // Keep direct byte-range reads small so seeking into an uncached area does not wait
+    // for a full MiB download. Sora uses its own metadata-sized segments below.
+    private val chunkSize = 256 * 1024
     private val DEFAULT_SORA_SEGMENT_SIZE = 2L * 1024L * 1024L
 
     // Abyss's token path embeds the segment size advertised by fristDatas.partSize.
@@ -493,8 +493,11 @@ internal class AbyssMediaServer(private val context: Context) {
 
     private fun probe(src: AbyssSource): Pair<Long, Boolean> {
         val conn = URL(src.url).openConnection() as HttpURLConnection
-        conn.connectTimeout = 12000; conn.readTimeout = 15000; conn.setRequestProperty("Range", "bytes=0-0")
-        conn.setRequestProperty("Referer", "https://player.abyssplayer.com/")
+        conn.connectTimeout = 12000; conn.readTimeout = 15000; conn.instanceFollowRedirects = true
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
+        conn.setRequestProperty("Range", "bytes=0-0")
+        conn.setRequestProperty("Referer", src.referer.ifBlank { "https://player.abyssplayer.com/" })
+        conn.setRequestProperty("Origin", "https://player.abyssplayer.com")
         try {
             val code = conn.responseCode
             val total = if (code == 206) conn.getHeaderField("Content-Range")?.substringAfter('/')?.toLongOrNull()

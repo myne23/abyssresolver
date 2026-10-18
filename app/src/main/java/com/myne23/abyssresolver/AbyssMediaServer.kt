@@ -56,6 +56,10 @@ internal class AbyssMediaServer(private val context: Context) {
         val requestStartedAt = System.currentTimeMillis()
         var requestMethod = "unknown"
         var requestRange = "unknown"
+        var requestStart = -1L
+        var requestEnd = -1L
+        var bytesWritten = 0L
+        var knownTotal = -1L
         try {
             client.soTimeout = 30000
             val input = BufferedInputStream(client.getInputStream())
@@ -76,6 +80,7 @@ internal class AbyssMediaServer(private val context: Context) {
             if (path.substringBefore('?') != expected || (method != "GET" && method != "HEAD")) { reply(client, 404, "not found"); return }
             val src = source ?: run { reply(client, 503, "stream unavailable"); return }
             val total = totalLength(src)
+            knownTotal = total
             val range = headers["range"]
             requestRange = range ?: "full"
             val bounds = parseRange(range, total) ?: (0L to total - 1)
@@ -83,7 +88,10 @@ internal class AbyssMediaServer(private val context: Context) {
                 client.getOutputStream().write("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */$total\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray()); return
             }
             val (start, end) = bounds
+            requestStart = start
+            requestEnd = end
             val partial = range != null
+            diagnostic("media_request_start", "$method range=$requestRange status=${if (partial) 206 else 200} start=$start end=$end total=$total")
             val out = BufferedOutputStream(client.getOutputStream())
             out.write(("HTTP/1.1 ${if (partial) 206 else 200} ${if (partial) "Partial Content" else "OK"}\r\n" +
                 "Content-Type: video/mp4\r\nAccept-Ranges: bytes\r\nContent-Length: ${end - start + 1}\r\n" +
@@ -102,12 +110,13 @@ internal class AbyssMediaServer(private val context: Context) {
                 val bytes = readDecrypted(src, pos, buf, n, total)
                 if (bytes <= 0) throw IllegalStateException("unexpected end of upstream stream")
                 out.write(buf, 0, bytes)
+                bytesWritten += bytes
                 pos += bytes
             }
             out.flush()
-            diagnostic("media_request", "$method range=$requestRange bytes=${end - start + 1} total=$total durationMs=${System.currentTimeMillis() - requestStartedAt}")
+            diagnostic("media_request", "$method range=$requestRange sent=$bytesWritten expected=${end - start + 1} total=$total durationMs=${System.currentTimeMillis() - requestStartedAt}")
         } catch (e: Throwable) {
-            diagnostic("media_request_error", "$requestMethod range=$requestRange durationMs=${System.currentTimeMillis() - requestStartedAt} ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+            diagnostic("media_request_error", "$requestMethod range=$requestRange sent=$bytesWritten pos=$requestStart..$requestEnd total=$knownTotal durationMs=${System.currentTimeMillis() - requestStartedAt} ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
             if (!headersSent) runCatching { reply(client, 503, "Abyss upstream unavailable") }
         }
     }
@@ -116,8 +125,10 @@ internal class AbyssMediaServer(private val context: Context) {
         Log.i("KinoExternalResolver", "$stage: $detail")
         context.getSharedPreferences(ResolverService.DIAG_PREFS, Context.MODE_PRIVATE).edit()
             .putString("stage", stage)
-            .putString("detail", detail.take(240))
+            .putString("detail", detail.take(600))
             .putLong("time", System.currentTimeMillis())
+            .putString("history", ((context.getSharedPreferences(ResolverService.DIAG_PREFS, Context.MODE_PRIVATE).getString("history", "") ?: "") +
+                "${System.currentTimeMillis()}|$stage|${detail.replace("\n", " ").take(220)}\n").lines().filter { it.isNotBlank() }.takeLast(12).joinToString("\n"))
             .apply()
     }
 
@@ -157,6 +168,7 @@ internal class AbyssMediaServer(private val context: Context) {
                     if (n < 0) break
                     output.write(buf, 0, n); left -= n
                 }
+                if (left > 0) throw IllegalStateException("upstream truncated chunk expected=${end - start + 1} received=${end - start + 1 - left}")
             } }
             if (start == 0L) {
                 val bytes = temp.readBytes()

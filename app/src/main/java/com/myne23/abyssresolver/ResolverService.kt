@@ -22,15 +22,18 @@ class ResolverService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     @Volatile private var current: AtomicBoolean? = null
     @Volatile private var server: AbyssMediaServer? = null
+    @Volatile private var megaServer: MegaMediaServer? = null
     @Volatile private var resolving = false
     @Volatile private var lastResolveAt = System.currentTimeMillis()
     private val main = Handler(Looper.getMainLooper())
     private val idleCheck = object : Runnable {
         override fun run() {
-            val lastRead = maxOf(lastResolveAt, server?.lastActivityMs ?: 0L)
+            val lastRead = maxOf(lastResolveAt, server?.lastActivityMs ?: 0L, megaServer?.lastActivityMs ?: 0L)
             if (!resolving && System.currentTimeMillis() - lastRead > 10 * 60 * 1000L) {
                 server?.stop()
                 server = null
+                megaServer?.stop()
+                megaServer = null
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             } else main.postDelayed(this, 60_000L)
@@ -48,14 +51,28 @@ class ResolverService : Service() {
                 var finished = false
                 try {
                     promoteToForeground()
-                    if (protocol != "abyss") throw ResolveFailure("unsupported", "Protocolo no compatible / Unsupported protocol")
-                    callback.onProgress(-1, "Preparando Abyss… / Preparing Abyss…")
-                    val parsed = AbyssSourceResolver.resolve(ref, cancelled) { p, msg -> callback.onProgress(p, msg) }
-                    if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
-                    val mediaServer = synchronized(this@ResolverService) {
-                        server ?: AbyssMediaServer(this@ResolverService).also { server = it }
+                    val local: String
+                    when (protocol) {
+                        "abyss" -> {
+                            callback.onProgress(-1, "Preparando Abyss… / Preparing Abyss…")
+                            val parsed = AbyssSourceResolver.resolve(ref, cancelled) { p, msg -> callback.onProgress(p, msg) }
+                            if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
+                            val mediaServer = synchronized(this@ResolverService) {
+                                server ?: AbyssMediaServer(this@ResolverService).also { server = it }
+                            }
+                            local = mediaServer.register(parsed)
+                        }
+                        "mega" -> {
+                            callback.onProgress(-1, "Preparando MEGA… / Preparing MEGA…")
+                            val parsed = MegaSourceResolver.resolve(ref, cancelled) { p, msg -> callback.onProgress(p, msg) }
+                            if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
+                            val mediaServer = synchronized(this@ResolverService) {
+                                megaServer ?: MegaMediaServer(this@ResolverService).also { megaServer = it }
+                            }
+                            local = mediaServer.register(parsed)
+                        }
+                        else -> throw ResolveFailure("unsupported", "Protocolo no compatible / Unsupported protocol")
                     }
-                    val local = mediaServer.register(parsed)
                     val answer = JSONObject()
                         .put("url", local)
                         .put("mime", "video/mp4")
@@ -117,6 +134,7 @@ class ResolverService : Service() {
         current?.set(true)
         executor.shutdownNow()
         server?.stop()
+        megaServer?.stop()
         super.onDestroy()
     }
 }

@@ -190,16 +190,25 @@ internal class AbyssMediaServer(private val context: Context) {
                     // Never expose the MP4 header until enough bytes exist to validate it.
                     val prefixReady = chunk != 0 || part.length() >= 65536L
                     if (available > 0L && prefixReady) {
-                        if (chunk == 0) {
-                            val prefix = ByteArray(8)
-                            java.io.RandomAccessFile(part, "r").use { it.readFully(prefix) }
-                            if (String(prefix, 4, 4, Charsets.US_ASCII) != "ftyp") {
-                                throw IllegalStateException("MP4 prefix check failed while streaming Sora segment")
+                        try {
+                            if (chunk == 0) {
+                                val prefix = ByteArray(8)
+                                java.io.RandomAccessFile(part, "r").use { it.readFully(prefix) }
+                                if (String(prefix, 4, 4, Charsets.US_ASCII) != "ftyp") {
+                                    throw IllegalStateException("MP4 prefix check failed while streaming Sora segment")
+                                }
                             }
+                            val count = min(len.toLong(), available).toInt()
+                            java.io.RandomAccessFile(part, "r").use { it.seek(inChunk.toLong()); it.readFully(out, 0, count) }
+                            return count
+                        } catch (_: java.io.FileNotFoundException) {
+                            // The downloader may atomically rename .part to .bin between exists() and open().
+                            // Re-enter the loop and read the completed cache file instead of failing the player.
+                            continue
+                        } catch (_: java.io.EOFException) {
+                            // The writer may still be extending the file after length() was sampled.
+                            continue
                         }
-                        val count = min(len.toLong(), available).toInt()
-                        java.io.RandomAccessFile(part, "r").use { it.seek(inChunk.toLong()); it.readFully(out, 0, count) }
-                        return count
                     }
                 }
                 if (System.currentTimeMillis() >= deadline) {

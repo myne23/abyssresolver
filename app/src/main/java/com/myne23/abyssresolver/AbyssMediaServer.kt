@@ -145,7 +145,7 @@ internal class AbyssMediaServer(private val context: Context) {
         if (offset >= total) return -1
         val chunk = (offset / chunkSize).toInt()
         // Include the chunk size in the key so cache files from older app versions cannot be misread.
-        val file = File(cache, md5(src.url) + "-${chunkSize}-$chunk.bin")
+        val file = File(cache, md5(src.url + "|" + src.filename) + "-${chunkSize}-$chunk.bin")
         if (!file.exists()) synchronized(file.absolutePath.intern()) {
             if (!file.exists()) {
                 var failure: Throwable? = null
@@ -243,7 +243,7 @@ internal class AbyssMediaServer(private val context: Context) {
         Thread({
             try {
                 val lastIndex = ((total - 1) / chunkSize).toInt()
-                val lastFile = File(cache, md5(src.url) + "-${chunkSize}-$lastIndex.bin")
+                val lastFile = File(cache, md5(src.url + "|" + src.filename) + "-${chunkSize}-$lastIndex.bin")
                 if (!lastFile.exists()) synchronized(lastFile.absolutePath.intern()) {
                     if (!lastFile.exists()) fetchChunk(src, lastIndex, lastFile, total)
                 }

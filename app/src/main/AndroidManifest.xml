@@ -12,7 +12,7 @@
         </activity>
         <service android:name=".ResolverService" android:exported="true" android:foregroundServiceType="dataSync">
             <intent-filter><action android:name="com.arkiv.player.action.RESOLVE_EXTERNAL" /></intent-filter>
-            <meta-data android:name="com.arkiv.player.meta.RESOLVER_PROTOCOLS" android:value="abyss,mega" />
+            <meta-data android:name="com.arkiv.player.meta.RESOLVER_PROTOCOLS" android:value="abyss" />
         </service>
     </application>
 </manifest>

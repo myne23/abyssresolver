@@ -187,7 +187,7 @@ internal object AbyssSourceResolver {
         val directCandidate = selected.directUrl.ifBlank { "${selected.url.trimEnd('/')}/$path" }
         val segmented = segmentBase.startsWith("https://") && selected.size > 0L && md5Id.isNotBlank() && selected.resId > 0
         val finalUrl = if (segmented) segmentBase else directCandidate
-        val filename = if (segmented) "$md5Id-${selected.resId}.mp4" else URL(finalUrl).path.substringAfterLast('/').ifBlank { path.substringAfterLast('/') }
+        val filename = if (segmented) path.substringAfterLast('/').ifBlank { URL(selected.url.ifBlank { finalUrl }).path.substringAfterLast('/').ifBlank { "$md5Id-${selected.resId}.mp4" } } else URL(finalUrl).path.substringAfterLast('/').ifBlank { path.substringAfterLast('/') }
         if (!finalUrl.startsWith("https://")) throw ResolveFailure("unsupported", "La fuente no usa HTTPS / Source is not HTTPS")
         progress(88, "Preparando transmisión segura… / Preparing stream…")
         if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")

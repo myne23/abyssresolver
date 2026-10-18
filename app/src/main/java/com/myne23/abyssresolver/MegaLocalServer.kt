@@ -199,7 +199,9 @@ internal object MegaLocalServer {
 
     private fun decryptRange(meta: Metadata, encodedKey: String, start: Long, end: Long): ByteArray {
         val keyBytes = try {
-            Base64.decode(encodedKey.replace('-', '+').replace('_', '/'), Base64.URL_SAFE or Base64.NO_WRAP)
+            val urlSafe = encodedKey.replace('-', '+').replace('_', '/')
+            val padded = urlSafe + "=".repeat((4 - urlSafe.length % 4) % 4)
+            Base64.decode(padded, Base64.DEFAULT or Base64.NO_WRAP)
         } catch (_: Exception) {
             throw MegaFailure(400, "Bad Request", "Invalid MEGA key")
         }
@@ -258,11 +260,12 @@ internal object MegaLocalServer {
         val end: Long
         if (left.isBlank()) {
             val suffix = right.toLongOrNull()?.takeIf { it > 0L } ?: return null
-            start = maxOf(0L, size - suffix)
             end = size - 1L
+            start = maxOf(0L, end - min(suffix, DEFAULT_WINDOW) + 1L)
         } else {
             start = left.toLongOrNull() ?: return null
-            end = if (right.isBlank()) min(size - 1L, start + DEFAULT_WINDOW - 1L) else (right.toLongOrNull() ?: return null)
+            val requestedEnd = if (right.isBlank()) size - 1L else (right.toLongOrNull() ?: return null)
+            end = min(min(size - 1L, requestedEnd), start + DEFAULT_WINDOW - 1L)
         }
         if (start >= size || end < start) return null
         return start to min(end, size - 1L)

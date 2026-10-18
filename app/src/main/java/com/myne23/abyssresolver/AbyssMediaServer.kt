@@ -34,7 +34,7 @@ internal class AbyssMediaServer(private val context: Context) {
         private set
     // Larger chunks reduce sequential startup latency by avoiding a separate upstream request every 256 KiB.
     // Range requests still fetch only the chunk containing the requested position.
-    private val chunkSize = 2 * 1024 * 1024
+    private val chunkSize = 1024 * 1024
     private val DEFAULT_SORA_SEGMENT_SIZE = 2L * 1024L * 1024L
 
     // Abyss's token path embeds the segment size advertised by fristDatas.partSize.
@@ -381,7 +381,8 @@ internal class AbyssMediaServer(private val context: Context) {
         // Fail a stalled segment sooner so the existing retry loop can try again
         // before Kino's playback buffer is exhausted.
         conn.connectTimeout = 10000
-        conn.readTimeout = 15000
+        // Sora segments can pause mid-transfer on the CDN; allow the retry loop to handle genuinely stalled reads.
+        conn.readTimeout = 60000
         conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
         // Match the reference Sora downloader's required CDN referer.

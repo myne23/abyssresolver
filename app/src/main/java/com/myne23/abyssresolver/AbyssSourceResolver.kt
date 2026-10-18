@@ -11,7 +11,13 @@ import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-internal data class AbyssSource(val url: String, val filename: String, val referer: String)
+internal data class AbyssSource(
+    val url: String,
+    val filename: String,
+    val referer: String,
+    val expectedSize: Long = 0L,
+    val partSize: Long = 0L
+)
 internal class ResolveFailure(val code: String, message: String) : Exception(message)
 
 internal object AbyssSourceResolver {
@@ -176,7 +182,7 @@ internal object AbyssSourceResolver {
         progress(88, "Preparando transmisión segura… / Preparing stream…")
         if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
         progress(100, "Fuente encontrada / Source found")
-        return AbyssSource(finalUrl, filename, referer)
+        return AbyssSource(finalUrl, filename, referer, selected.size, selected.partSize)
     }
 
     private fun describeMetadata(value: Any?): String {

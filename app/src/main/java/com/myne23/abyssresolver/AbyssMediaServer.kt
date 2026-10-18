@@ -192,7 +192,10 @@ internal class AbyssMediaServer(private val context: Context) {
                     // Start the next segment after ~2/3 of the current one has arrived.
                     // This gives the active seek/start request priority instead of splitting
                     // bandwidth evenly between two large Sora downloads from byte zero.
-                    if (part.length() >= (segmentSize * 2L / 3L)) {
+                    // Keep the active Sora segment dominant for most of its transfer. Starting
+                    // the next multi-MiB request at 2/3 caused both full-segment downloads
+                    // to compete for bandwidth; only overlap the final 10% as a small runway.
+                    if (part.length() >= (segmentSize * 9L / 10L)) {
                         scheduleSoraPrefetch(src, chunk + 1, total)
                     }
                     val available = part.length() - inChunk

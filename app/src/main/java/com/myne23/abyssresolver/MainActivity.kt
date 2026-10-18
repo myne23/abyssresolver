@@ -51,6 +51,7 @@ class MainActivity : Activity() {
         val prefs = getSharedPreferences(ResolverService.DIAG_PREFS, MODE_PRIVATE)
         val stage = prefs.getString("stage", null) ?: "sin_eventos"
         val detail = prefs.getString("detail", "Todavía no se recibió ninguna petición.")
+        val history = prefs.getString("history", "").orEmpty()
         val timestamp = prefs.getLong("time", 0L)
         val timeText = if (timestamp > 0L) DateFormat.getDateTimeInstance().format(Date(timestamp)) else "Nunca"
 
@@ -62,6 +63,7 @@ class MainActivity : Activity() {
             "\nEstado: $stage" +
             "\nDetalle: $detail" +
             "\nHora: $timeText" +
+            "\n\nHISTORIAL RECIENTE (hasta 12 eventos)\n" + (history.ifBlank { "Sin peticiones registradas." }) +
             "\n\nVolvé a esta pantalla después de probar Abyss; el diagnóstico se actualiza al volver." +
             "\nSi sigue en sin_eventos, Kino no llegó al servicio o la instalación no corresponde a esta compilación."
     }

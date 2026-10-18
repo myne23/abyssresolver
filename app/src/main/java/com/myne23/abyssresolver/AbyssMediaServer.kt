@@ -175,7 +175,7 @@ internal class AbyssMediaServer(private val context: Context) {
             if (!file.exists()) scheduleSoraPrefetch(src, chunk, total)
             val part = File(file.parentFile, file.name + ".part")
             val inChunk = (offset % segmentSize).toInt()
-            val deadline = System.currentTimeMillis() + 30_000L
+            val deadline = System.currentTimeMillis() + 90_000L
             while (true) {
                 if (file.exists()) {
                     val available = file.length() - inChunk
@@ -208,7 +208,7 @@ internal class AbyssMediaServer(private val context: Context) {
                 Thread.sleep(25L)
             }
             // Keep a rolling buffer ahead of playback; the current segment is already available.
-            for (ahead in 1..3) scheduleSoraPrefetch(src, chunk + ahead, total)
+            for (ahead in 1..1) scheduleSoraPrefetch(src, chunk + ahead, total)
             return min(len, (file.length() - inChunk).toInt().coerceAtLeast(0)).also { count ->
                 if (count <= 0) throw IllegalStateException("Sora segment cache has no bytes index=$chunk")
                 java.io.RandomAccessFile(file, "r").use { it.seek(inChunk.toLong()); it.readFully(out, 0, count) }
@@ -372,7 +372,7 @@ internal class AbyssMediaServer(private val context: Context) {
         // Fail a stalled segment sooner so the existing retry loop can try again
         // before Kino's playback buffer is exhausted.
         conn.connectTimeout = 10000
-        conn.readTimeout = 8000
+        conn.readTimeout = 15000
         conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
         // Match the reference Sora downloader's required CDN referer.

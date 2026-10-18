@@ -25,7 +25,7 @@ class AbyssSourceSelectionTest {
         assertEquals(245926117L, AbyssSourceSelection.select(realSources, "4").selected!!.size)
         assertEquals(327032461L, AbyssSourceSelection.select(realSources, "5").selected!!.size)
         assertEquals(327032461L, AbyssSourceSelection.select(realSources, "best").selected!!.size)
-        assertEquals(3, AbyssSourceSelection.select(realSources, "best").validCount)
+        assertEquals(4, AbyssSourceSelection.select(realSources, "best").validCount)
     }
 
     @Test fun fragmentedSourceWithPlayableUrlIsSelectedForRuntimeValidation() {

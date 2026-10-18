@@ -16,7 +16,9 @@ internal data class AbyssSourceOption(
 
 internal data class AbyssSourceSelectionResult(
     val selected: AbyssSourceOption?,
-    val validCount: Int
+    val validCount: Int,
+    val failureCode: String? = null,
+    val failureMessage: String? = null
 )
 
 internal object AbyssSourceSelection {
@@ -26,7 +28,21 @@ internal object AbyssSourceSelection {
                 option.url.startsWith("https://") &&
                 (option.partSize == 0L || option.partSize >= option.size)
         }
-        if (valid.isEmpty()) return AbyssSourceSelectionResult(null, 0)
+        if (valid.isEmpty()) {
+            val onlyFragmented = options.isNotEmpty() && options.all {
+                it.path.isNotBlank() && it.url.startsWith("https://") && it.partSize > 0L && it.partSize < it.size
+            }
+            return if (onlyFragmented) {
+                AbyssSourceSelectionResult(
+                    selected = null,
+                    validCount = 0,
+                    failureCode = "unsupported",
+                    failureMessage = "Este contenido solo está disponible en un formato fragmentado que todavía no se soporta / This content is only available in a split format that is not supported yet"
+                )
+            } else {
+                AbyssSourceSelectionResult(null, 0, failureCode = "unavailable")
+            }
+        }
 
         val requested = when (requestedQuality.trim().lowercase()) {
             "3", "480", "480p" -> 3

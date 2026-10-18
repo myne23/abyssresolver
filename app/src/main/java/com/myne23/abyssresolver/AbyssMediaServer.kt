@@ -141,7 +141,7 @@ internal class AbyssMediaServer(private val context: Context) {
             .putString("detail", detail.take(600))
             .putLong("time", System.currentTimeMillis())
             .putString("history", ((context.getSharedPreferences(ResolverService.DIAG_PREFS, Context.MODE_PRIVATE).getString("history", "") ?: "") +
-                "${System.currentTimeMillis()}|$stage|${detail.replace("\n", " ").take(220)}\n").lines().filter { it.isNotBlank() }.takeLast(12).joinToString("\n"))
+                "${System.currentTimeMillis()}|$stage|${detail.replace("\n", " ").take(3000)}\n").lines().filter { it.isNotBlank() }.takeLast(20).joinToString("\n"))
             .apply()
     }
 

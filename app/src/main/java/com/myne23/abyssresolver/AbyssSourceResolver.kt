@@ -151,6 +151,55 @@ internal object AbyssSourceResolver {
                 sub = json.optString("sub").takeUnless { it == "null" }.orEmpty()
             )
         }
+        // First preserve the exact v0.2.9 / Actions #40 source selection and URL
+        // construction. Only opt into Sora when that exact legacy candidate is
+        // positively identified as a split first-part URL.
+        val legacyWanted = when (quality.lowercase()) {
+            "3", "480", "480p" -> 480
+            "4", "720", "720p" -> 720
+            "5", "1080", "1080p" -> 1080
+            else -> Int.MAX_VALUE
+        }
+        val legacyCandidates = rawSources.filter {
+            it.optString("url").startsWith("https://") && it.optString("path").isNotBlank()
+        }
+        val legacyJson = legacyCandidates.sortedByDescending { qualityHeight(it) }
+            .firstOrNull { qualityHeight(it) <= legacyWanted }
+            ?: legacyCandidates.maxByOrNull { qualityHeight(it) }
+        if (legacyJson != null) {
+            val legacyBase = legacyJson.getString("url").trimEnd('/')
+            val legacyPath = legacyJson.getString("path").trimStart('/')
+            val legacyUrl = "$legacyBase/$legacyPath"
+            val legacyFilename = URL(legacyUrl).path.substringAfterLast('/').ifBlank { legacyPath.substringAfterLast('/') }
+            val legacyResId = legacyJson.optInt("res_id", 0)
+            val legacySize = legacyJson.optLong("size", 0L)
+            val legacyOption = options.firstOrNull {
+                it.resId == legacyResId && it.path.trimStart('/') == legacyPath && it.url.trimEnd('/') == legacyBase
+            }
+            val legacyPartSize = legacyOption?.partSize ?: 0L
+            val rawDomainLegacy = domains.optString(0).takeUnless { it == "null" }.orEmpty()
+                .removePrefix("https://").removePrefix("http://").trim().trimEnd('/')
+            val suffixLegacy = rawDomainLegacy.substringAfter(".", "")
+            val legacySub = legacyOption?.sub.orEmpty()
+            val legacySoraBase = if (legacySub.isNotBlank() && suffixLegacy.isNotBlank()) "https://$legacySub.$suffixLegacy" else ""
+            val legacyHasSoraMetadata = legacySoraBase.isNotBlank() && legacyPartSize > 0L &&
+                legacySize > legacyPartSize && md5Id.isNotBlank() && legacyResId > 0
+            val legacyProbe = if (legacyHasSoraMetadata) probeDirectCandidate(legacyUrl, referer, legacySize, legacyPartSize, cancelled) else "legacy-direct"
+            val useSoraForLegacySource = legacyHasSoraMetadata &&
+                (legacyProbe == "first-part-only" || legacyProbe == "partial-total-$legacyPartSize")
+            if (!useSoraForLegacySource) {
+                diagnostic("source_transport", "transport=legacy-direct-v029 url=$legacyUrl probe=$legacyProbe")
+                progress(88, "Preparando transmisión segura… / Preparing stream…")
+                if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
+                progress(100, "Fuente encontrada / Source found")
+                return AbyssSource(legacyUrl, legacyFilename, referer)
+            }
+            diagnostic("source_transport", "transport=abyss-sora reason=confirmed-first-part expected=$legacySize partSize=$legacyPartSize resId=$legacyResId")
+            progress(88, "Preparando transmisión segura… / Preparing stream…")
+            if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
+            progress(100, "Fuente encontrada / Source found")
+            return AbyssSource(legacySoraBase, "$md5Id-$legacyResId.mp4", referer, legacySize, legacyPartSize, true, md5Id, legacyResId)
+        }
         val selection = AbyssSourceSelection.select(options, quality)
         val selected = selection.selected
         val diagnosticSummary = AbyssSourceSelection.diagnosticSummary(options, selection)

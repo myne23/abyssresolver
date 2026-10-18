@@ -168,10 +168,56 @@ internal class AbyssMediaServer(private val context: Context) {
         val chunk = (offset / segmentSize).toInt()
         // Include the actual upstream segment size in the cache key.
         val file = File(cache, md5(src.url + "|" + src.filename) + "-${segmentSize}-$chunk.bin")
+        if (src.segmented) {
+            // Do not make the player wait for an entire 4–10 MiB Sora segment.
+            // Start/continue the segment download in the background and serve bytes
+            // from its growing .part file as soon as they arrive.
+            if (!file.exists()) scheduleSoraPrefetch(src, chunk, total)
+            val part = File(file.parentFile, file.name + ".part")
+            val inChunk = (offset % segmentSize).toInt()
+            val deadline = System.currentTimeMillis() + 30_000L
+            while (true) {
+                if (file.exists()) {
+                    val available = file.length() - inChunk
+                    val count = min(len.toLong(), available).toInt()
+                    if (count > 0) {
+                        java.io.RandomAccessFile(file, "r").use { it.seek(inChunk.toLong()); it.readFully(out, 0, count) }
+                        break
+                    }
+                }
+                if (part.exists()) {
+                    val available = part.length() - inChunk
+                    // Never expose the MP4 header until enough bytes exist to validate it.
+                    val prefixReady = chunk != 0 || part.length() >= 65536L
+                    if (available > 0L && prefixReady) {
+                        if (chunk == 0) {
+                            val prefix = ByteArray(8)
+                            java.io.RandomAccessFile(part, "r").use { it.readFully(prefix) }
+                            if (String(prefix, 4, 4, Charsets.US_ASCII) != "ftyp") {
+                                throw IllegalStateException("MP4 prefix check failed while streaming Sora segment")
+                            }
+                        }
+                        val count = min(len.toLong(), available).toInt()
+                        java.io.RandomAccessFile(part, "r").use { it.seek(inChunk.toLong()); it.readFully(out, 0, count) }
+                        return count
+                    }
+                }
+                if (System.currentTimeMillis() >= deadline) {
+                    throw IllegalStateException("Timed out waiting for Sora segment bytes index=$chunk offset=$inChunk")
+                }
+                Thread.sleep(25L)
+            }
+            // Keep a rolling buffer ahead of playback; the current segment is already available.
+            for (ahead in 1..3) scheduleSoraPrefetch(src, chunk + ahead, total)
+            return min(len, (file.length() - inChunk).toInt().coerceAtLeast(0)).also { count ->
+                if (count <= 0) throw IllegalStateException("Sora segment cache has no bytes index=$chunk")
+                java.io.RandomAccessFile(file, "r").use { it.seek(inChunk.toLong()); it.readFully(out, 0, count) }
+            }
+        }
+
         if (!file.exists()) synchronized(file.absolutePath.intern()) {
             if (!file.exists()) {
                 var failure: Throwable? = null
-                // Retry transient Abyss range stalls quickly; a shorter timeout lets retries happen before the player gives up.
                 for (attempt in 0..2) {
                     try {
                         fetchChunk(src, chunk, file, total)
@@ -185,11 +231,6 @@ internal class AbyssMediaServer(private val context: Context) {
                 }
                 if (failure != null) throw failure
             }
-        }
-        if (src.segmented) {
-            // Keep a small rolling buffer ahead of the playback position. A single stalled
-            // CDN segment should not prevent the following segments from being prepared.
-            for (ahead in 1..3) scheduleSoraPrefetch(src, chunk + ahead, total)
         }
         val inChunk = (offset % segmentSize).toInt()
         val count = min(len, (file.length() - inChunk).toInt().coerceAtLeast(0))

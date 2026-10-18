@@ -79,7 +79,16 @@ internal object MegaLocalServer {
             val target = first.getOrNull(1).orEmpty().substringBefore('?')
             val handle = Regex("^/mega/([A-Za-z0-9_-]+)$").matchEntire(target)?.groupValues?.get(1)
             if (method == "OPTIONS") {
-                writeResponse(client, 204, "No Content", emptyMap(), ByteArray(0))
+                writeResponse(
+                    client, 204, "No Content",
+                    mapOf(
+                        "Access-Control-Allow-Origin" to "*",
+                        "Access-Control-Allow-Methods" to "GET, HEAD, OPTIONS",
+                        "Access-Control-Allow-Headers" to "Range",
+                        "Access-Control-Max-Age" to "600"
+                    ),
+                    ByteArray(0)
+                )
                 return
             }
             if ((method != "GET" && method != "HEAD") || handle == null) {

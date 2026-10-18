@@ -24,10 +24,7 @@ internal data class AbyssSourceSelectionResult(
 
 internal object AbyssSourceSelection {
     fun select(options: List<AbyssSourceOption>, requestedQuality: String): AbyssSourceSelectionResult {
-        val valid = options.filter { option ->
-            hasUsableLocation(option) &&
-                (option.partSize == 0L || option.partSize >= option.size)
-        }
+        val valid = options.filter(::hasUsableLocation)
         if (valid.isEmpty()) {
             val onlyFragmented = options.isNotEmpty() && options.all {
                 hasUsableLocation(it) && it.partSize > 0L && it.partSize < it.size
@@ -60,7 +57,11 @@ internal object AbyssSourceSelection {
         }
         val selected = valid.asSequence()
             .filter { it.resId == chosenResId }
-            .sortedWith(compareByDescending<AbyssSourceOption> { it.status }.thenByDescending { it.size })
+            .sortedWith(
+                compareBy<AbyssSourceOption> { isFragmented(it) }
+                    .thenByDescending { it.status }
+                    .thenByDescending { it.size }
+            )
             .firstOrNull()
         return AbyssSourceSelectionResult(selected, valid.size)
     }
@@ -69,14 +70,18 @@ internal object AbyssSourceSelection {
         val perSource = options.mapIndexed { index, option ->
             val reason = when {
                 !hasUsableLocation(option) -> "sin URL reproducible (missing playable URL/path)"
-                option.partSize > 0L && option.partSize < option.size -> "fragmentada (fragmented)"
+                result.selected === option && isFragmented(option) -> "elegida para validar URL fragmentada (selected for fragmented URL probe)"
                 result.selected === option -> "elegida (selected)"
+                isFragmented(option) -> "fragmentada (fragmented)"
                 else -> "no es la calidad pedida (not requested quality)"
             }
             "#$index label=${option.label} res_id=${option.resId} size=${option.size} partSize=${option.partSize} reason=$reason keys=${option.keys.joinToString(",")}"
         }.joinToString(" || ")
         return "sourceCountBefore=${options.size} sourceCountAfter=${result.validCount}; $perSource"
     }
+
+    private fun isFragmented(option: AbyssSourceOption): Boolean =
+        option.partSize > 0L && option.partSize < option.size
 
     private fun hasUsableLocation(option: AbyssSourceOption): Boolean =
         option.directUrl.startsWith("https://") ||

@@ -1,6 +1,6 @@
 # Abyss Resolver for Kino
 
-Android companion app for the Kino external-resolver protocol. Package: `com.myne23.abyssresolver`; protocol: `abyss`.
+Android companion app for the Kino external-resolver protocol. Package: `com.mmilew.abyssresolver`; protocol: `abyss`.
 
 This repository is being developed as an independent companion for the AnimeYT Kino plugin. It is not yet a release build. Do not install or publish an APK until the resolver is tested against real playback and the Kino SDK contract.
 

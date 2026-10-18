@@ -196,9 +196,13 @@ internal object AbyssSourceResolver {
         val directProbe = if (metadataSaysSplit) {
             probeDirectCandidate(directCandidate, referer, selected.size, selected.partSize, cancelled)
         } else "not-needed"
-        val directIsComplete = directProbe == "full-range"
-        val segmented = metadataSaysSplit && !directIsComplete
-        diagnostic("direct_transport_probe", "result=$directProbe expectedSize=${selected.size} partSize=${selected.partSize} useSora=$segmented")
+        // Keep the commit-40 direct transport as the safe default. Switch to Sora
+        // only when the probe positively identifies a first-part-only URL; transient
+        // probe failures must not silently change a previously working series to Sora.
+        val directIsFirstPartOnly = directProbe == "first-part-only" ||
+            directProbe == "partial-total-${selected.partSize}"
+        val segmented = metadataSaysSplit && directIsFirstPartOnly
+        diagnostic("direct_transport_probe", "result=$directProbe expectedSize=${selected.size} partSize=${selected.partSize} useSora=$segmented decision=${if (segmented) "confirmed-split" else "legacy-direct"}")
         val segmentBase = if (segmented) soraBase else ""
         val finalUrl = if (segmented) segmentBase else directCandidate
         val filename = if (segmented) "$md5Id-${selected.resId}.mp4" else URL(finalUrl).path.substringAfterLast('/').ifBlank { path.substringAfterLast('/') }
@@ -247,7 +251,7 @@ internal object AbyssSourceResolver {
                 else -> "http-$code"
             }
         } catch (e: Exception) {
-            "probe-error-\${e.javaClass.simpleName}"
+            "probe-error-${e.javaClass.simpleName}"
         } finally {
             conn.disconnect()
         }

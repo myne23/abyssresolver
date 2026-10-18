@@ -173,6 +173,10 @@ internal class AbyssMediaServer(private val context: Context) {
             // Start/continue the segment download in the background and serve bytes
             // from its growing .part file as soon as they arrive.
             if (!file.exists()) scheduleSoraPrefetch(src, chunk, total)
+            // Start the following Sora segment immediately, not only after this segment
+            // finishes. Otherwise a seek to an uncached position downloads segment N,
+            // then waits for N+1 to start, making playback appear stalled at boundaries.
+            scheduleSoraPrefetch(src, chunk + 1, total)
             val part = File(file.parentFile, file.name + ".part")
             val inChunk = (offset % segmentSize).toInt()
             val deadline = System.currentTimeMillis() + 90_000L

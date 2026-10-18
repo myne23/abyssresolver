@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Abyss Resolver</string>
-    <string name="status_title">Abyss Resolver / Resolutor Abyss</string>
-    <string name="status_body">Kino companion app. The resolver starts when Kino asks. / App auxiliar de Kino. El resolutor se inicia cuando Kino lo solicita.</string>
+    <string name="app_name">Kino Resolvers</string>
+    <string name="status_title">Kino Resolvers / Resolutores de Kino</string>
+    <string name="status_body">App auxiliar de Kino. Los resolutores se inician cuando Kino los solicita. / Kino companion app. Resolvers start when Kino requests them.</string>
 </resources>

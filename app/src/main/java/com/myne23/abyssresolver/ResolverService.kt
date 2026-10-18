@@ -28,10 +28,18 @@ class ResolverService : Service() {
 
     private fun diagnostic(stage: String, detail: String) {
         Log.i(TAG, "$stage: $detail")
-        getSharedPreferences(DIAG_PREFS, MODE_PRIVATE).edit()
+        val prefs = getSharedPreferences(DIAG_PREFS, MODE_PRIVATE)
+        val time = System.currentTimeMillis()
+        val stamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(time))
+        val previous = prefs.getString("history", "").orEmpty()
+        val entry = "$stamp  $stage: ${detail.take(180)}"
+        val history = (previous.lineSequence().filter { it.isNotBlank() } + entry)
+            .toList().takeLast(12).joinToString("\n")
+        prefs.edit()
             .putString("stage", stage)
             .putString("detail", detail.take(240))
-            .putLong("time", System.currentTimeMillis())
+            .putString("history", history)
+            .putLong("time", time)
             .apply()
     }
 

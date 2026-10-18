@@ -102,14 +102,8 @@ internal object AbyssSourceResolver {
         val diagnosticSummary = AbyssSourceSelection.diagnosticSummary(options, selection)
         diagnostic("source_selection", diagnosticSummary)
         if (selected == null) {
-            val onlyFragmented = options.isNotEmpty() && options.all {
-                it.path.isNotBlank() && it.url.startsWith("https://") && it.partSize > 0L && it.partSize < it.size
-            }
-            if (onlyFragmented) {
-                throw ResolveFailure(
-                    "unsupported",
-                    "Este contenido solo está disponible en un formato fragmentado que todavía no se soporta / This content is only available in a split format that is not supported yet"
-                )
+            if (selection.failureCode == "unsupported") {
+                throw ResolveFailure("unsupported", selection.failureMessage ?: "Formato fragmentado no compatible aún / Split format not supported yet")
             }
             val mp4Keys = mp4.keys().asSequence().toList().joinToString(",")
             val domains = describeMetadata(mp4.opt("domains"))

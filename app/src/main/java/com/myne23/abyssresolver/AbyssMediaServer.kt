@@ -194,8 +194,9 @@ internal class AbyssMediaServer(private val context: Context) {
         val conn = URL(src.url).openConnection() as HttpURLConnection
         conn.connectTimeout = 15000; conn.readTimeout = 12000; conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
-        // Match the reference Sora client: requests are made as Abyss CDN media requests.
-        conn.setRequestProperty("Referer", "https://abysscdn.com/")
+        // Legacy direct byte-range sources must keep the originating player referer.
+        conn.setRequestProperty("Referer", src.referer.ifBlank { "https://player.abyssplayer.com/" })
+        conn.setRequestProperty("Origin", "https://player.abyssplayer.com")
         conn.setRequestProperty("Range", "bytes=$start-$end")
         diagnostic("upstream_chunk_start", "chunk=$index range=$start-$end expected=$expected")
         var code = -1
@@ -277,9 +278,8 @@ internal class AbyssMediaServer(private val context: Context) {
         conn.readTimeout = 20000
         conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
-        // The verified direct Abyss media endpoint accepts the player origin/referer.
-        conn.setRequestProperty("Referer", src.referer.ifBlank { "https://player.abyssplayer.com/" })
-        conn.setRequestProperty("Origin", "https://player.abyssplayer.com")
+        // Match the reference Sora downloader's required CDN referer.
+        conn.setRequestProperty("Referer", "https://abysscdn.com/")
         diagnostic("upstream_segment_start", "index=$index expected=$expected total=$total tokenSlash=${token.count { it == '/' }} tokenPlus=${token.count { it == '+' }} endpoint=${endpoint.substringBefore("/sora/")}/sora/…")
         var code = -1
         var received = 0L

@@ -153,7 +153,7 @@ internal class AbyssMediaServer(private val context: Context) {
         if (!file.exists()) synchronized(file.absolutePath.intern()) {
             if (!file.exists()) {
                 var failure: Throwable? = null
-                // Retry transient Abyss range stalls rather than aborting the whole response.
+                // Retry transient Abyss range stalls quickly; a shorter timeout lets retries happen before the player gives up.
                 for (attempt in 0..2) {
                     try {
                         fetchChunk(src, chunk, file, total)
@@ -181,7 +181,7 @@ internal class AbyssMediaServer(private val context: Context) {
         val end = min(total - 1, start + chunkSize - 1)
         val expected = end - start + 1
         val conn = URL(src.url).openConnection() as HttpURLConnection
-        conn.connectTimeout = 15000; conn.readTimeout = 20000; conn.instanceFollowRedirects = true
+        conn.connectTimeout = 15000; conn.readTimeout = 12000; conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
         conn.setRequestProperty("Referer", src.referer.ifBlank { "https://player.abyssplayer.com/" })
         conn.setRequestProperty("Origin", "https://player.abyssplayer.com")

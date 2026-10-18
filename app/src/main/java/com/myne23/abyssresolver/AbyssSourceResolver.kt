@@ -63,11 +63,21 @@ internal object AbyssSourceResolver {
         val payload = try { JSONObject(plaintext) } catch (_: Exception) {
             throw ResolveFailure("bad_response", "No se pudieron descifrar los metadatos MP4 / Could not decrypt MP4 metadata")
         }
-        val mp4 = payload.optJSONObject("mp4") ?: throw ResolveFailure("unavailable", "Abyss no ofrece fuentes MP4 / Abyss has no MP4 sources")
+        val mp4 = payload.optJSONObject("mp4")
+        if (mp4 == null) {
+            val keys = payload.keys().asSequence().take(12).toList().joinToString(",")
+            throw ResolveFailure("unavailable", "Abyss no ofrece fuentes MP4 reconocibles / No MP4 sources object; payloadKeys=$keys")
+        }
         val sources = mp4.optJSONArray("sources") ?: JSONArray()
-        val candidates = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }
-            .filter { it.optString("url").startsWith("https://") && it.optString("path").isNotBlank() }
-        if (candidates.isEmpty()) throw ResolveFailure("unavailable", "No se encontraron fuentes MP4 / No MP4 sources were found")
+        val rawSources = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }
+        val candidates = rawSources.filter {
+            it.optString("url").startsWith("https://") && it.optString("path").isNotBlank()
+        }
+        if (candidates.isEmpty()) {
+            val mp4Keys = mp4.keys().asSequence().take(12).toList().joinToString(",")
+            val sourceKeys = rawSources.firstOrNull()?.keys()?.asSequence()?.take(12)?.toList()?.joinToString(",") ?: "none"
+            throw ResolveFailure("unavailable", "No MP4 sources matched; mp4Keys=$mp4Keys sourceCount=${sources.length()} firstSourceKeys=$sourceKeys")
+        }
         val wanted = when (quality.lowercase()) { "3", "480", "480p" -> 480; "4", "720", "720p" -> 720; "5", "1080", "1080p" -> 1080; else -> Int.MAX_VALUE }
         val source = candidates.sortedByDescending { qualityHeight(it) }.firstOrNull { qualityHeight(it) <= wanted }
             ?: candidates.maxByOrNull { qualityHeight(it) }!!

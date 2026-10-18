@@ -148,39 +148,63 @@ internal class AbyssMediaServer(private val context: Context) {
     }
 
     private fun fetchChunk(src: AbyssSource, index: Int, target: File, total: Long) {
+        val started = System.currentTimeMillis()
         val start = index.toLong() * chunkSize
         val end = min(total - 1, start + chunkSize - 1)
+        val expected = end - start + 1
         val conn = URL(src.url).openConnection() as HttpURLConnection
         conn.connectTimeout = 15000; conn.readTimeout = 30000; conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
-        conn.setRequestProperty("Referer", "https://player.abyssplayer.com/")
+        conn.setRequestProperty("Referer", src.referer.ifBlank { "https://player.abyssplayer.com/" })
         conn.setRequestProperty("Origin", "https://player.abyssplayer.com")
         conn.setRequestProperty("Range", "bytes=$start-$end")
+        diagnostic("upstream_chunk_start", "chunk=$index range=$start-$end expected=$expected")
+        var code = -1
+        var received = 0L
         try {
-            val code = conn.responseCode
-            if (code != 206 && !(code == 200 && start == 0L)) throw IllegalStateException("upstream HTTP $code")
+            code = conn.responseCode
+            val contentRange = conn.getHeaderField("Content-Range")
+            if (code != 206 && !(code == 200 && start == 0L)) {
+                throw IllegalStateException("upstream HTTP $code range=$start-$end contentRange=${contentRange ?: "none"}")
+            }
+            if (code == 206) {
+                val match = Regex("bytes\\s+(\\d+)-(\\d+)/(\\d+|\\*)", RegexOption.IGNORE_CASE)
+                    .matchEntire(contentRange?.trim() ?: "")
+                    ?: throw IllegalStateException("invalid upstream Content-Range")
+                val actualStart = match.groupValues[1].toLong()
+                val actualEnd = match.groupValues[2].toLong()
+                if (actualStart != start || actualEnd < actualStart || actualEnd > end) {
+                    throw IllegalStateException("upstream range mismatch requested=$start-$end got=$actualStart-$actualEnd")
+                }
+            }
             val temp = File(target.parentFile, target.name + ".part")
             conn.inputStream.use { input -> temp.outputStream().use { output ->
-                var left = end - start + 1
+                var left = expected
                 val buf = ByteArray(16384)
                 while (left > 0) {
                     val n = input.read(buf, 0, min(buf.size.toLong(), left).toInt())
                     if (n < 0) break
-                    output.write(buf, 0, n); left -= n
+                    output.write(buf, 0, n); left -= n; received += n
                 }
-                if (left > 0) throw IllegalStateException("upstream truncated chunk expected=${end - start + 1} received=${end - start + 1 - left}")
+                if (left > 0) throw IllegalStateException("upstream truncated chunk expected=$expected received=$received")
             } }
             if (start == 0L) {
                 val bytes = temp.readBytes()
                 val prefixLength = min(65536, bytes.size)
+                val encryptedMarker = if (bytes.size >= 8) String(bytes, 4, 4, Charsets.US_ASCII) else "short"
                 if (prefixLength >= 8) {
                     decryptPrefix(bytes, prefixLength, src.filename)
                     val marker = String(bytes, 4, 4, Charsets.US_ASCII)
-                    if (marker != "ftyp") throw IllegalStateException("MP4 prefix check failed")
+                    diagnostic("upstream_prefix_check", "chunk=$index bytes=$prefixLength markerBefore=$encryptedMarker markerAfter=$marker")
+                    if (marker != "ftyp") throw IllegalStateException("MP4 prefix check failed marker=$marker")
                     temp.writeBytes(bytes)
-                }
+                } else throw IllegalStateException("upstream first chunk too short bytes=${bytes.size}")
             }
             if (!temp.renameTo(target)) throw IllegalStateException("could not commit cache chunk")
+            diagnostic("upstream_chunk_ok", "chunk=$index status=$code received=$received contentRange=${contentRange ?: "none"} durationMs=${System.currentTimeMillis() - started}")
+        } catch (e: Throwable) {
+            diagnostic("upstream_chunk_error", "chunk=$index status=$code range=$start-$end received=$received durationMs=${System.currentTimeMillis() - started} ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+            throw e
         } finally { conn.disconnect() }
     }
 

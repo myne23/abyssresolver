@@ -392,12 +392,10 @@ internal class AbyssMediaServer(private val context: Context) {
             val total = if (code == 206) conn.getHeaderField("Content-Range")?.substringAfter('/')?.toLongOrNull()
                 else conn.contentLengthLong.takeIf { it > 0 }
             val actualTotal = total ?: throw IllegalStateException("source length unavailable")
-            if (src.expectedSize > 0L && actualTotal != src.expectedSize) {
-                throw IllegalStateException(
-                    "Abyss source length mismatch expected=" + src.expectedSize +
-                        " actual=" + actualTotal + " partSize=" + src.partSize
-                )
-            }
+            // Preserve the original direct-URL behavior: some Abyss URLs expose only
+            // the first part (often exactly partSize) and report that part's length.
+            // Do not reject the source merely because metadata advertises the full video size.
+            // Sora transport uses expectedSize separately and does not probe the direct URL.
             return actualTotal to (code == 206)
         } finally { conn.disconnect() }
     }

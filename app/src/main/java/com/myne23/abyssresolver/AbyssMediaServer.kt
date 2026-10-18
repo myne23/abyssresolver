@@ -151,9 +151,11 @@ internal class AbyssMediaServer(private val context: Context) {
 
     private fun readDecrypted(src: AbyssSource, offset: Long, out: ByteArray, len: Int, total: Long): Int {
         if (offset >= total) return -1
-        val chunk = (offset / chunkSize).toInt()
-        // Include the chunk size in the key so cache files from older app versions cannot be misread.
-        val file = File(cache, md5(src.url + "|" + src.filename) + "-${chunkSize}-$chunk.bin")
+        // Sora segment boundaries come from Abyss metadata (partSize), not our local read buffer size.
+        val segmentSize = if (src.segmented) src.partSize.takeIf { it > 0L } ?: chunkSize.toLong() else chunkSize.toLong()
+        val chunk = (offset / segmentSize).toInt()
+        // Include the actual upstream segment size in the cache key.
+        val file = File(cache, md5(src.url + "|" + src.filename) + "-${segmentSize}-$chunk.bin")
         if (!file.exists()) synchronized(file.absolutePath.intern()) {
             if (!file.exists()) {
                 var failure: Throwable? = null
@@ -172,7 +174,7 @@ internal class AbyssMediaServer(private val context: Context) {
                 if (failure != null) throw failure
             }
         }
-        val inChunk = (offset % chunkSize).toInt()
+        val inChunk = (offset % segmentSize).toInt()
         val count = min(len, (file.length() - inChunk).toInt().coerceAtLeast(0))
         if (count <= 0) return -1
         java.io.RandomAccessFile(file, "r").use { it.seek(inChunk.toLong()); it.readFully(out, 0, count) }
@@ -253,7 +255,7 @@ internal class AbyssMediaServer(private val context: Context) {
      */
     private fun fetchSoraSegment(src: AbyssSource, index: Int, target: File, total: Long) {
         val started = System.currentTimeMillis()
-        val segmentBytes = chunkSize.toLong()
+        val segmentBytes = src.partSize.takeIf { it > 0L } ?: chunkSize.toLong()
         val start = index.toLong() * segmentBytes
         if (start >= total) throw IllegalStateException("segment index outside source size index=$index total=$total")
         val expected = min(segmentBytes, total - start)
@@ -316,6 +318,8 @@ internal class AbyssMediaServer(private val context: Context) {
     }
 
     private fun scheduleLayoutProbe(src: AbyssSource, total: Long) {
+        // The legacy byte-range tail probe does not apply to Sora segments.
+        if (src.segmented) return
         synchronized(this) {
             if (layoutProbeUrl == src.url) return
             layoutProbeUrl = src.url

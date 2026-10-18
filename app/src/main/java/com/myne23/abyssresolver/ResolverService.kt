@@ -77,7 +77,7 @@ class ResolverService : Service() {
                     val answer = JSONObject()
                         .put("url", local)
                         .put("mime", "video/mp4")
-                        .put("expiresInSeconds", 240)
+                        .put("expiresInSeconds", 86400)
                         .toString()
                     callback.onResult(answer)
                     diagnostic("result_sent", "Result callback sent; local URL registered")

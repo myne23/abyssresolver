@@ -188,10 +188,17 @@ internal object AbyssSourceResolver {
         val soraBase = if (selected.sub.isNotBlank() && domainSuffix.isNotBlank()) {
             "https://${selected.sub}.$domainSuffix"
         } else ""
-        // Keep the legacy byte-range route for sources that expose a real path.
-        val segmented = soraBase.isNotBlank() &&
+        // Preserve direct transport only when a tiny Range probe confirms the full MP4.
+        // Some apparently valid file paths expose only the first partSize bytes.
+        val metadataSaysSplit = soraBase.isNotBlank() &&
             selected.partSize > 0L && selected.size > selected.partSize &&
             md5Id.isNotBlank() && selected.resId > 0
+        val directProbe = if (metadataSaysSplit) {
+            probeDirectCandidate(directCandidate, referer, selected.size, selected.partSize, cancelled)
+        } else "not-needed"
+        val directIsComplete = directProbe == "full-range" || directProbe == "full-body"
+        val segmented = metadataSaysSplit && !directIsComplete
+        diagnostic("direct_transport_probe", "result=$directProbe expectedSize=${selected.size} partSize=${selected.partSize} useSora=$segmented")
         val segmentBase = if (segmented) soraBase else ""
         val finalUrl = if (segmented) segmentBase else directCandidate
         val filename = if (segmented) "$md5Id-${selected.resId}.mp4" else URL(finalUrl).path.substringAfterLast('/').ifBlank { path.substringAfterLast('/') }
@@ -201,6 +208,49 @@ internal object AbyssSourceResolver {
         progress(100, "Fuente encontrada / Source found")
         diagnostic("source_transport", if (segmented) "transport=abyss-sora size=${selected.size} resId=${selected.resId} md5Id=$md5Id domain=${rawDomain.take(100)} sub=${selected.sub} domainSuffix=${domainSuffix.take(100)} base=$segmentBase" else "transport=direct url=$finalUrl")
         return AbyssSource(finalUrl, filename, referer, selected.size, selected.partSize, segmented, md5Id, selected.resId)
+    }
+
+    /**
+     * Determine whether an apparently direct Abyss URL represents the complete file.
+     * Only request one byte and disconnect without consuming the response body.
+     */
+    private fun probeDirectCandidate(
+        candidate: String,
+        referer: String,
+        expectedSize: Long,
+        partSize: Long,
+        cancelled: java.util.concurrent.atomic.AtomicBoolean
+    ): String {
+        if (cancelled.get()) return "cancelled"
+        val conn = runCatching { URL(candidate).openConnection() as HttpURLConnection }.getOrElse {
+            return "probe-error-\${it.javaClass.simpleName}"
+        }
+        return try {
+            conn.connectTimeout = 2500
+            conn.readTimeout = 2500
+            conn.instanceFollowRedirects = true
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("Range", "bytes=0-0")
+            conn.setRequestProperty("User-Agent", UA)
+            conn.setRequestProperty("Referer", referer)
+            conn.setRequestProperty("Origin", "https://player.abyssplayer.com")
+            val code = conn.responseCode
+            val contentRange = conn.getHeaderField("Content-Range").orEmpty()
+            val rangeTotal = Regex("/(\\d+)\\s*$").find(contentRange)?.groupValues?.get(1)?.toLongOrNull()
+            val bodyLength = conn.contentLengthLong
+            when {
+                code == HttpURLConnection.HTTP_PARTIAL && rangeTotal == expectedSize -> "full-range"
+                code in 200..299 && bodyLength == expectedSize -> "full-body"
+                code == HttpURLConnection.HTTP_PARTIAL && rangeTotal == partSize -> "first-part-only"
+                code in 200..299 && bodyLength == partSize -> "first-part-only"
+                code == HttpURLConnection.HTTP_PARTIAL -> "partial-total-\${rangeTotal ?: "unknown"}"
+                else -> "http-$code"
+            }
+        } catch (e: Exception) {
+            "probe-error-\${e.javaClass.simpleName}"
+        } finally {
+            conn.disconnect()
+        }
     }
 
     private fun describeMetadata(value: Any?): String {

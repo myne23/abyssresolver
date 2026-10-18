@@ -28,13 +28,14 @@ class AbyssSourceSelectionTest {
         assertEquals(3, AbyssSourceSelection.select(realSources, "best").validCount)
     }
 
-    @Test fun onlyFragmentedSourceIsUnsupported() {
-        val result = AbyssSourceSelection.select(listOf(realSources[2]), "best")
-        assertNull(result.selected)
-        assertEquals(0, result.validCount)
-        assertEquals("unsupported", result.failureCode)
-        assertTrue(result.failureMessage!!.contains("Este contenido solo está disponible"))
-        assertTrue(result.failureMessage!!.contains("This content is only available"))
+    @Test fun fragmentedSourceWithPlayableUrlIsSelectedForRuntimeValidation() {
+        val option = realSources[2]
+        val result = AbyssSourceSelection.select(listOf(option), "best")
+        assertNotNull(result.selected)
+        assertEquals(option.size, result.selected!!.size)
+        assertEquals(1, result.validCount)
+        assertTrue(AbyssSourceSelection.diagnosticSummary(listOf(option), result)
+            .contains("selected for fragmented URL probe"))
     }
 
     @Test fun existingOneFilePerQualityStillWorks() {

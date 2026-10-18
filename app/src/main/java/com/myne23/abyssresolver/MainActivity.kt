@@ -63,7 +63,7 @@ class MainActivity : Activity() {
             "\nEstado: $stage" +
             "\nDetalle: $detail" +
             "\nHora: $timeText" +
-            "\n\nHISTORIAL RECIENTE (hasta 12 eventos)\n" + (history.ifBlank { "Sin peticiones registradas." }) +
+            "\n\nHISTORIAL RECIENTE (hasta 20 eventos / up to 20 events)\n" + (history.ifBlank { "Sin peticiones registradas." }) +
             "\n\nVolvé a esta pantalla después de probar Abyss; el diagnóstico se actualiza al volver." +
             "\nSi sigue en sin_eventos, Kino no llegó al servicio o la instalación no corresponde a esta compilación."
     }

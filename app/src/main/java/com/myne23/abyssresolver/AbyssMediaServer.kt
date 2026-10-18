@@ -10,7 +10,11 @@ import java.net.Socket
 import java.net.URL
 import java.net.HttpURLConnection
 import android.util.Log
+import android.util.Base64
 import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import kotlin.math.min
 
 /**
@@ -28,12 +32,24 @@ internal class AbyssMediaServer(private val context: Context) {
     @Volatile private var layoutProbeUrl: String? = null
     @Volatile var lastActivityMs: Long = System.currentTimeMillis()
         private set
-    // Larger chunks reduce sequential startup latency by avoiding a separate upstream request every 256 KiB.
-    // Range requests still fetch only the chunk containing the requested position.
-    private val chunkSize = 1024 * 1024
+    // Keep direct byte-range reads small so seeking into an uncached area does not wait
+    // for a full MiB download. Sora uses its own metadata-sized segments below.
+    private val chunkSize = 256 * 1024
+    private val DEFAULT_SORA_SEGMENT_SIZE = 2L * 1024L * 1024L
+
+    // Abyss's token path embeds the segment size advertised by fristDatas.partSize.
+    // It can differ between videos; hardcoding 2 MiB produces valid-looking tokens for
+    // the wrong endpoint and the CDN answers 404 for every segment.
+    private fun soraSegmentSize(src: AbyssSource): Long =
+        src.partSize.takeIf { it > 0L } ?: DEFAULT_SORA_SEGMENT_SIZE
+    // Track segment prefetches so repeated player reads don't start duplicate workers.
+    private val soraPrefetchScheduled = java.util.Collections.newSetFromMap(
+        java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    )
 
     @Synchronized fun register(next: AbyssSource): String {
-        val sameContent = source?.url == next.url
+        // A CDN host is reused across episodes; compare the full source metadata, not just the host URL.
+        val sameContent = source == next
         if (!sameContent) {
             probedUrl = null
             probedLength = -1L
@@ -141,19 +157,85 @@ internal class AbyssMediaServer(private val context: Context) {
             .putString("detail", detail.take(600))
             .putLong("time", System.currentTimeMillis())
             .putString("history", ((context.getSharedPreferences(ResolverService.DIAG_PREFS, Context.MODE_PRIVATE).getString("history", "") ?: "") +
-                "${System.currentTimeMillis()}|$stage|${detail.replace("\n", " ").take(220)}\n").lines().filter { it.isNotBlank() }.takeLast(12).joinToString("\n"))
+                "${System.currentTimeMillis()}|$stage|${detail.replace("\n", " ").take(3000)}\n").lines().filter { it.isNotBlank() }.takeLast(20).joinToString("\n"))
             .apply()
     }
 
     private fun readDecrypted(src: AbyssSource, offset: Long, out: ByteArray, len: Int, total: Long): Int {
         if (offset >= total) return -1
-        val chunk = (offset / chunkSize).toInt()
-        // Include the chunk size in the key so cache files from older app versions cannot be misread.
-        val file = File(cache, md5(src.url + "|" + src.filename) + "-${chunkSize}-$chunk.bin")
+        // Sora segment boundaries come from Abyss metadata (partSize), not our local read buffer size.
+        val segmentSize = if (src.segmented) soraSegmentSize(src) else chunkSize.toLong()
+        val chunk = (offset / segmentSize).toInt()
+        // Include the actual upstream segment size in the cache key.
+        val file = File(cache, md5(src.url + "|" + src.filename) + "-${segmentSize}-$chunk.bin")
+        if (src.segmented) {
+            // Do not make the player wait for an entire 4–10 MiB Sora segment.
+            // Start/continue the segment download in the background and serve bytes
+            // from its growing .part file as soon as they arrive.
+            if (!file.exists()) scheduleSoraPrefetch(src, chunk, total)
+            // Avoid competing with the requested segment during startup and seeking.
+            // The next segment is scheduled once this segment has made substantial progress,
+            // or immediately after it is already cached (below), preserving ahead-of-playback buffering.
+            val part = File(file.parentFile, file.name + ".part")
+            val inChunk = (offset % segmentSize).toInt()
+            val deadline = System.currentTimeMillis() + 90_000L
+            while (true) {
+                if (file.exists()) {
+                    val available = file.length() - inChunk
+                    val count = min(len.toLong(), available).toInt()
+                    if (count > 0) {
+                        java.io.RandomAccessFile(file, "r").use { it.seek(inChunk.toLong()); it.readFully(out, 0, count) }
+                        break
+                    }
+                }
+                if (part.exists()) {
+                    // Start the next segment after ~2/3 of the current one has arrived.
+                    // This gives the active seek/start request priority instead of splitting
+                    // bandwidth evenly between two large Sora downloads from byte zero.
+                    if (part.length() >= (segmentSize * 2L / 3L)) {
+                        scheduleSoraPrefetch(src, chunk + 1, total)
+                    }
+                    val available = part.length() - inChunk
+                    // Never expose the MP4 header until enough bytes exist to validate it.
+                    val prefixReady = chunk != 0 || part.length() >= 65536L
+                    if (available > 0L && prefixReady) {
+                        try {
+                            if (chunk == 0) {
+                                val prefix = ByteArray(8)
+                                java.io.RandomAccessFile(part, "r").use { it.readFully(prefix) }
+                                if (String(prefix, 4, 4, Charsets.US_ASCII) != "ftyp") {
+                                    throw IllegalStateException("MP4 prefix check failed while streaming Sora segment")
+                                }
+                            }
+                            val count = min(len.toLong(), available).toInt()
+                            java.io.RandomAccessFile(part, "r").use { it.seek(inChunk.toLong()); it.readFully(out, 0, count) }
+                            return count
+                        } catch (_: java.io.FileNotFoundException) {
+                            // The downloader may atomically rename .part to .bin between exists() and open().
+                            // Re-enter the loop and read the completed cache file instead of failing the player.
+                            continue
+                        } catch (_: java.io.EOFException) {
+                            // The writer may still be extending the file after length() was sampled.
+                            continue
+                        }
+                    }
+                }
+                if (System.currentTimeMillis() >= deadline) {
+                    throw IllegalStateException("Timed out waiting for Sora segment bytes index=$chunk offset=$inChunk")
+                }
+                Thread.sleep(25L)
+            }
+            // Keep a rolling buffer ahead of playback; the current segment is already available.
+            for (ahead in 1..1) scheduleSoraPrefetch(src, chunk + ahead, total)
+            return min(len, (file.length() - inChunk).toInt().coerceAtLeast(0)).also { count ->
+                if (count <= 0) throw IllegalStateException("Sora segment cache has no bytes index=$chunk")
+                java.io.RandomAccessFile(file, "r").use { it.seek(inChunk.toLong()); it.readFully(out, 0, count) }
+            }
+        }
+
         if (!file.exists()) synchronized(file.absolutePath.intern()) {
             if (!file.exists()) {
                 var failure: Throwable? = null
-                // Retry transient Abyss range stalls quickly; a shorter timeout lets retries happen before the player gives up.
                 for (attempt in 0..2) {
                     try {
                         fetchChunk(src, chunk, file, total)
@@ -168,14 +250,56 @@ internal class AbyssMediaServer(private val context: Context) {
                 if (failure != null) throw failure
             }
         }
-        val inChunk = (offset % chunkSize).toInt()
+        val inChunk = (offset % segmentSize).toInt()
         val count = min(len, (file.length() - inChunk).toInt().coerceAtLeast(0))
         if (count <= 0) return -1
         java.io.RandomAccessFile(file, "r").use { it.seek(inChunk.toLong()); it.readFully(out, 0, count) }
         return count
     }
 
+
+    /**
+     * Download one Sora segment ahead in the background. Playback reads are synchronous,
+     * so preparing the next 2 MiB while the current one is consumed hides intermittent CDN stalls.
+     */
+    private fun scheduleSoraPrefetch(src: AbyssSource, index: Int, total: Long) {
+        val segmentSize = soraSegmentSize(src)
+        if (index < 0 || index.toLong() * segmentSize >= total) return
+        val target = File(cache, md5(src.url + "|" + src.filename) + "-${segmentSize}-${index}.bin")
+        if (target.exists() || !soraPrefetchScheduled.add(target.absolutePath)) return
+        Thread({
+            try {
+                synchronized(target.absolutePath.intern()) {
+                    if (target.exists()) return@synchronized
+                    var failure: Throwable? = null
+                    for (attempt in 0..2) {
+                        try {
+                            fetchSoraSegment(src, index, target, total)
+                            failure = null
+                            break
+                        } catch (e: Exception) {
+                            failure = e
+                            diagnostic("upstream_prefetch_retry", "index=$index attempt=${attempt + 1}/3 ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+                            if (attempt < 2) Thread.sleep(300L * (attempt + 1))
+                        }
+                    }
+                    if (failure != null) {
+                        diagnostic("upstream_prefetch_failed", "index=$index ${failure.javaClass.simpleName}: ${failure.message ?: "no message"}")
+                    } else {
+                        diagnostic("upstream_prefetch_ok", "index=$index")
+                    }
+                }
+            } catch (e: Exception) {
+                diagnostic("upstream_prefetch_error", "index=$index ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+            }
+        }, "abyss-sora-prefetch-$index").apply { isDaemon = true; start() }
+    }
+
     private fun fetchChunk(src: AbyssSource, index: Int, target: File, total: Long) {
+        if (src.segmented) {
+            fetchSoraSegment(src, index, target, total)
+            return
+        }
         val started = System.currentTimeMillis()
         val start = index.toLong() * chunkSize
         val end = min(total - 1, start + chunkSize - 1)
@@ -183,6 +307,7 @@ internal class AbyssMediaServer(private val context: Context) {
         val conn = URL(src.url).openConnection() as HttpURLConnection
         conn.connectTimeout = 15000; conn.readTimeout = 12000; conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
+        // Legacy direct byte-range sources must keep the originating player referer.
         conn.setRequestProperty("Referer", src.referer.ifBlank { "https://player.abyssplayer.com/" })
         conn.setRequestProperty("Origin", "https://player.abyssplayer.com")
         conn.setRequestProperty("Range", "bytes=$start-$end")
@@ -239,7 +364,85 @@ internal class AbyssMediaServer(private val context: Context) {
         } finally { conn.disconnect() }
     }
 
+    /**
+     * Abyss split MP4 sources are not byte-range URLs. Each piece is requested through
+     * /sora/{totalSize}/{double-base64(AES-CTR("/mp4/{md5_id}/{res_id}/{totalSize}/2097152/{index}"))}.
+     */
+    private fun fetchSoraSegment(src: AbyssSource, index: Int, target: File, total: Long) {
+        val started = System.currentTimeMillis()
+        val segmentBytes = soraSegmentSize(src)
+        val start = index.toLong() * segmentBytes
+        if (start >= total) throw IllegalStateException("segment index outside source size index=$index total=$total")
+        val expected = min(segmentBytes, total - start)
+        val plainPath = "/mp4/${src.md5Id}/${src.resId}/${src.expectedSize}/${segmentBytes}/${index}"
+        val keyHex = AbyssCrypto.md5NumericDigits(src.expectedSize)
+        val key = keyHex.toByteArray(Charsets.US_ASCII)
+        val cipher = Cipher.getInstance("AES/CTR/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(key.copyOfRange(0, 16)))
+        val encrypted = cipher.doFinal(plainPath.toByteArray(Charsets.UTF_8))
+        val first = Base64.encodeToString(encrypted, Base64.NO_WRAP).replace("=", "")
+        val token = Base64.encodeToString(first.toByteArray(Charsets.UTF_8), Base64.NO_WRAP).replace("=", "")
+        // The token is standard Base64, not URL-safe Base64. Escape path-reserved characters
+        // so '+' and '/' remain inside the single token path segment.
+        val pathToken = token.replace("+", "%2B").replace("/", "%2F")
+        val endpoint = "${src.url.trimEnd('/')}/sora/${src.expectedSize}/$pathToken"
+        val conn = URL(endpoint).openConnection() as HttpURLConnection
+        // Fail a stalled segment sooner so the existing retry loop can try again
+        // before Kino's playback buffer is exhausted.
+        conn.connectTimeout = 10000
+        // Sora segments can pause mid-transfer on the CDN; allow the retry loop to handle genuinely stalled reads.
+        conn.readTimeout = 60000
+        conn.instanceFollowRedirects = true
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
+        // Match the reference Sora downloader's required CDN referer.
+        conn.setRequestProperty("Referer", "https://abysscdn.com/")
+        diagnostic("upstream_segment_start", "index=$index expected=$expected total=$total tokenSlash=${token.count { it == '/' }} tokenPlus=${token.count { it == '+' }} endpoint=${endpoint.substringBefore("/sora/")}/sora/…")
+        var code = -1
+        var received = 0L
+        try {
+            code = conn.responseCode
+            if (code !in 200..299) throw IllegalStateException("Abyss segment HTTP $code index=$index")
+            val temp = File(target.parentFile, target.name + ".part")
+            conn.inputStream.use { input ->
+                temp.outputStream().use { output ->
+                    val buf = ByteArray(16384)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        output.write(buf, 0, n)
+                        received += n
+                        if (received > segmentBytes + 65536L) throw IllegalStateException("Abyss segment too large index=$index bytes=$received")
+                    }
+                }
+            }
+            if (received <= 0L) throw IllegalStateException("Abyss returned empty segment index=$index")
+            if (index < ((total + segmentBytes - 1) / segmentBytes) - 1 && received != segmentBytes) {
+                throw IllegalStateException("Abyss segment length mismatch index=$index expected=$segmentBytes actual=$received")
+            }
+            if (index == 0) {
+                val bytes = temp.readBytes()
+                val prefixLength = min(65536, bytes.size)
+                if (prefixLength < 8) throw IllegalStateException("Abyss first segment too short bytes=${bytes.size}")
+                // Sora segment bodies are already MP4 bytes. The reference downloader
+                // concatenates them verbatim; AES-CTR is only used to construct the URL token.
+                // Decrypting this prefix again corrupts the MP4 header.
+                val marker = String(bytes, 4, 4, Charsets.US_ASCII)
+                diagnostic("upstream_prefix_check", "transport=sora index=0 bytes=$prefixLength markerRaw=$marker")
+                if (marker != "ftyp") throw IllegalStateException("MP4 prefix check failed rawMarker=$marker")
+            }
+            if (!temp.renameTo(target)) throw IllegalStateException("could not commit Abyss segment cache")
+            diagnostic("upstream_segment_ok", "index=$index status=$code received=$received expected=$expected durationMs=${System.currentTimeMillis() - started}")
+        } catch (e: Throwable) {
+            diagnostic("upstream_segment_error", "index=$index status=$code received=$received durationMs=${System.currentTimeMillis() - started} ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+            throw e
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     private fun scheduleLayoutProbe(src: AbyssSource, total: Long) {
+        // The legacy byte-range tail probe does not apply to Sora segments.
+        if (src.segmented) return
         synchronized(this) {
             if (layoutProbeUrl == src.url) return
             layoutProbeUrl = src.url
@@ -283,7 +486,14 @@ internal class AbyssMediaServer(private val context: Context) {
         if (probedUrl == src.url && probedLength > 0L) return probedLength
         synchronized(this) {
             if (probedUrl == src.url && probedLength > 0L) return probedLength
-            val length = probe(src).first
+            // Split Abyss/Sora URLs expose individual encrypted segments, not the full MP4.
+            // Their full content length is already supplied by the decrypted metadata.
+            val length = if (src.segmented) {
+                src.expectedSize.takeIf { it > 0L }
+                    ?: throw IllegalStateException("Sora source length unavailable in metadata")
+            } else {
+                probe(src).first
+            }
             probedUrl = src.url
             probedLength = length
             return length
@@ -292,13 +502,21 @@ internal class AbyssMediaServer(private val context: Context) {
 
     private fun probe(src: AbyssSource): Pair<Long, Boolean> {
         val conn = URL(src.url).openConnection() as HttpURLConnection
-        conn.connectTimeout = 12000; conn.readTimeout = 15000; conn.setRequestProperty("Range", "bytes=0-0")
-        conn.setRequestProperty("Referer", "https://player.abyssplayer.com/")
+        conn.connectTimeout = 12000; conn.readTimeout = 15000; conn.instanceFollowRedirects = true
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
+        conn.setRequestProperty("Range", "bytes=0-0")
+        conn.setRequestProperty("Referer", src.referer.ifBlank { "https://player.abyssplayer.com/" })
+        conn.setRequestProperty("Origin", "https://player.abyssplayer.com")
         try {
             val code = conn.responseCode
             val total = if (code == 206) conn.getHeaderField("Content-Range")?.substringAfter('/')?.toLongOrNull()
                 else conn.contentLengthLong.takeIf { it > 0 }
-            return (total ?: throw IllegalStateException("source length unavailable")) to (code == 206)
+            val actualTotal = total ?: throw IllegalStateException("source length unavailable")
+            // Preserve the original direct-URL behavior: some Abyss URLs expose only
+            // the first part (often exactly partSize) and report that part's length.
+            // Do not reject the source merely because metadata advertises the full video size.
+            // Sora transport uses expectedSize separately and does not probe the direct URL.
+            return actualTotal to (code == 206)
         } finally { conn.disconnect() }
     }
 

@@ -32,9 +32,9 @@ class ResolverService : Service() {
         val time = System.currentTimeMillis()
         val stamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(time))
         val previous = prefs.getString("history", "").orEmpty()
-        val entry = "$stamp  $stage: ${detail.take(180)}"
+        val entry = "$stamp  $stage: ${detail.take(3000)}"
         val history = (previous.lineSequence().filter { it.isNotBlank() } + entry)
-            .toList().takeLast(12).joinToString("\n")
+            .toList().takeLast(20).joinToString("\n")
         prefs.edit()
             .putString("stage", stage)
             .putString("detail", detail.take(240))
@@ -72,7 +72,7 @@ class ResolverService : Service() {
                     if (protocol != "abyss") throw ResolveFailure("unsupported", "Protocolo no compatible / Unsupported protocol")
                     callback.onProgress(-1, "Preparando Abyss… / Preparing Abyss…")
                     diagnostic("abyss_resolving", "Resolving source reference")
-                    val parsed = AbyssSourceResolver.resolve(ref, cancelled) { p, msg ->
+                    val parsed = AbyssSourceResolver.resolve(ref, cancelled, diagnostic = { stage, detail -> diagnostic(stage, detail) }) { p, msg ->
                         diagnostic("abyss_progress", "$p% $msg")
                         callback.onProgress(p, msg)
                     }

@@ -46,6 +46,8 @@ internal class AbyssMediaServer(private val context: Context) {
     private val soraPrefetchScheduled = java.util.Collections.newSetFromMap(
         java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     )
+    // Prevent a permanently failing CDN segment from triggering a tight retry loop.
+    private val soraPrefetchRetryAfter = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     @Synchronized fun register(next: AbyssSource): String {
         // A CDN host is reused across episodes; compare the full source metadata, not just the host URL.
@@ -272,7 +274,10 @@ internal class AbyssMediaServer(private val context: Context) {
         val segmentSize = soraSegmentSize(src)
         if (index < 0 || index.toLong() * segmentSize >= total) return
         val target = File(cache, md5(src.url + "|" + src.filename) + "-${segmentSize}-${index}.bin")
-        if (target.exists() || !soraPrefetchScheduled.add(target.absolutePath)) return
+        if (target.exists()) return
+        val now = System.currentTimeMillis()
+        if (now < (soraPrefetchRetryAfter[target.absolutePath] ?: 0L)) return
+        if (!soraPrefetchScheduled.add(target.absolutePath)) return
         Thread({
             try {
                 synchronized(target.absolutePath.intern()) {
@@ -300,7 +305,9 @@ internal class AbyssMediaServer(private val context: Context) {
             } catch (e: Exception) {
                 diagnostic("upstream_prefetch_error", "index=$index ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
             } finally {
-                // Allow a later read to retry this segment after transient failures.
+                // Retry after a short cooldown, not on every polling iteration.
+                if (target.exists()) soraPrefetchRetryAfter.remove(target.absolutePath)
+                else soraPrefetchRetryAfter[target.absolutePath] = System.currentTimeMillis() + 1500L
                 soraPrefetchScheduled.remove(target.absolutePath)
             }
         }, "abyss-sora-prefetch-$index").apply { isDaemon = true; start() }

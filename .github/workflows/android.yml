@@ -5,6 +5,7 @@ on:
       - main
       - feature/kino-resolvers-package
       - fix/abyss-quality-fragmented-sources
+      - fix/abyss-segment-token-stream
   pull_request:
   workflow_dispatch:
 permissions:

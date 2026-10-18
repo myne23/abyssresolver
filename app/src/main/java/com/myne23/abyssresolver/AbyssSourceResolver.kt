@@ -90,7 +90,10 @@ internal object AbyssSourceResolver {
         }
         if (candidates.isEmpty()) {
             val mp4Keys = mp4.keys().asSequence().take(12).toList().joinToString(",")
-            val sourceKeys = rawSources.firstOrNull()?.keys()?.asSequence()?.take(12)?.toList()?.joinToString(",") ?: "none"
+            val firstSource = rawSources.firstOrNull()
+            val sourceKeys = firstSource?.keys()?.asSequence()?.toList()?.joinToString(",") ?: "none"
+            val domains = describeMetadata(mp4.opt("domains"))
+            val firstDatas = describeMetadata(mp4.opt("fristDatas"))
             if (hls != null) {
                 val hlsKeys = hls.keys().asSequence().take(12).toList().joinToString(",")
                 val hlsSources = hls.optJSONArray("sources")
@@ -102,7 +105,11 @@ internal object AbyssSourceResolver {
                     "Abyss no tiene MP4 utilizable; HLS disponible / No usable MP4; HLS metadata found; mp4Keys=$mp4Keys sourceCount=${sources.length()} firstSourceKeys=$sourceKeys hlsKeys=$hlsKeys hlsSources=${hlsSources?.length() ?: 0} streams=$streamsCount media=$mediaCount"
                 )
             }
-            throw ResolveFailure("unavailable", "No MP4 sources matched; mp4Keys=$mp4Keys sourceCount=${sources.length()} firstSourceKeys=$sourceKeys")
+            throw ResolveFailure(
+                "unavailable",
+                "No MP4 sources matched; mp4Keys=$mp4Keys sourceCount=${sources.length()} firstSourceKeys=$sourceKeys " +
+                    "domains=$domains fristDatas=$firstDatas firstSource=${describeMetadata(firstSource)}"
+            )
         }
         val wanted = when (quality.lowercase()) { "3", "480", "480p" -> 480; "4", "720", "720p" -> 720; "5", "1080", "1080p" -> 1080; else -> Int.MAX_VALUE }
         val source = candidates.sortedByDescending { qualityHeight(it) }.firstOrNull { qualityHeight(it) <= wanted }
@@ -116,6 +123,26 @@ internal object AbyssSourceResolver {
         if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
         progress(100, "Fuente encontrada / Source found")
         return AbyssSource(finalUrl, filename, referer)
+    }
+
+    private fun describeMetadata(value: Any?): String {
+        return when (value) {
+            null, JSONObject.NULL -> "null"
+            is JSONObject -> "object(keys=" + value.keys().asSequence().take(12).toList().joinToString(",") + ")"
+            is JSONArray -> {
+                val first = value.opt(0)
+                val firstSummary = when (first) {
+                    is JSONObject -> "object(keys=" + first.keys().asSequence().take(12).toList().joinToString(",") + ")"
+                    is JSONArray -> "array(count=" + first.length() + ")"
+                    is String -> "string(" + first.take(80).replace(" ", "_") + ")"
+                    null, JSONObject.NULL -> "null"
+                    else -> first.javaClass.simpleName
+                }
+                "array(count=${value.length()},first=$firstSummary)"
+            }
+            is String -> "string(" + value.take(80).replace(" ", "_") + ")"
+            else -> value.javaClass.simpleName
+        }
     }
 
     private fun qualityHeight(o: JSONObject): Int {

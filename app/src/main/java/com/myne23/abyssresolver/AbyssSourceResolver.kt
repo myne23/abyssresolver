@@ -99,16 +99,7 @@ internal object AbyssSourceResolver {
         }
         val selection = AbyssSourceSelection.select(options, quality)
         val selected = selection.selected
-        val perSource = options.mapIndexed { index, option ->
-            val reason = when {
-                option.path.isBlank() || option.url.isBlank() || !option.url.startsWith("https://") -> "sin path/url (missing path/url)"
-                option.partSize > 0L && option.partSize < option.size -> "fragmentada (fragmented)"
-                selected === option -> "elegida (selected)"
-                else -> "no es la calidad pedida (not requested quality)"
-            }
-            "#$index label=${option.label} res_id=${option.resId} size=${option.size} partSize=${option.partSize} reason=$reason keys=${option.keys.joinToString(",")}"
-        }.joinToString(" || ")
-        val diagnosticSummary = "sourceCountBefore=${options.size} sourceCountAfter=${selection.validCount}; $perSource"
+        val diagnosticSummary = AbyssSourceSelection.diagnosticSummary(options, selection)
         diagnostic("source_selection", diagnosticSummary)
         if (selected == null) {
             val onlyFragmented = options.isNotEmpty() && options.all {

@@ -32,6 +32,9 @@ class AbyssSourceSelectionTest {
         val result = AbyssSourceSelection.select(listOf(realSources[2]), "best")
         assertNull(result.selected)
         assertEquals(0, result.validCount)
+        assertEquals("unsupported", result.failureCode)
+        assertTrue(result.failureMessage!!.contains("Este contenido solo está disponible"))
+        assertTrue(result.failureMessage!!.contains("This content is only available"))
     }
 
     @Test fun existingOneFilePerQualityStillWorks() {

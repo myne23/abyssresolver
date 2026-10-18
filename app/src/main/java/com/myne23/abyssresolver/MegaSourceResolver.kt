@@ -77,7 +77,12 @@ internal object MegaSourceResolver {
         val streamUrl = item.optString("g")
         val size = item.optLong("s", -1L)
         if (!streamUrl.startsWith("https://") || size <= 0L) {
-            throw ResolveFailure("unavailable", "MEGA no proporcionó una URL o tamaño válido / MEGA did not provide a valid URL or size")
+            val keys = item.keys().asSequence().toList().sorted().joinToString(",").ifBlank { "(ninguna)" }
+            val apiError = item.opt("e")?.toString() ?: item.opt("err")?.toString() ?: item.opt("error")?.toString() ?: "ninguno"
+            throw ResolveFailure(
+                "unavailable",
+                "MEGA respondió sin URL/tamaño válido (keys=$keys, apiError=$apiError, size=$size) / MEGA returned no valid URL/size (keys=$keys, apiError=$apiError, size=$size)"
+            )
         }
         if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
         progress(100, "Archivo MEGA listo / MEGA file ready")

@@ -79,9 +79,15 @@ internal object MegaSourceResolver {
         if (!streamUrl.startsWith("https://") || size <= 0L) {
             val keys = item.keys().asSequence().toList().sorted().joinToString(",").ifBlank { "(ninguna)" }
             val apiError = item.opt("e")?.toString() ?: item.opt("err")?.toString() ?: item.opt("error")?.toString() ?: "ninguno"
+            val gValue = item.opt("g")
+            val gType = gValue?.javaClass?.simpleName ?: "null"
+            val gLength = streamUrl.length
+            val gUrl = try { URL(streamUrl) } catch (_: Exception) { null }
+            val gScheme = gUrl?.protocol ?: "no-url"
+            val gHost = gUrl?.host ?: "no-host"
             throw ResolveFailure(
                 "unavailable",
-                "MEGA respondió sin URL/tamaño válido (keys=$keys, apiError=$apiError, size=$size) / MEGA returned no valid URL/size (keys=$keys, apiError=$apiError, size=$size)"
+                "MEGA respuesta inválida (keys=$keys, apiError=$apiError, gType=$gType, gScheme=$gScheme, gHost=$gHost, gLength=$gLength, size=$size) / MEGA invalid response (keys=$keys, apiError=$apiError, gType=$gType, gScheme=$gScheme, gHost=$gHost, gLength=$gLength, size=$size)"
             )
         }
         if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")

@@ -42,6 +42,7 @@ class ResolverService : Service() {
 
     private val binder = object : IExternalResolver.Stub() {
         override fun resolve(protocol: String, ref: String, callback: IExternalResolverCallback) {
+            Log.i("KinoExternalResolver", "resolve_received protocol=" + protocol + " refLength=" + ref.length)
             current?.set(true)
             val cancelled = AtomicBoolean(false)
             current = cancelled

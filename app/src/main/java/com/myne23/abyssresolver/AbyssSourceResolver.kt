@@ -85,16 +85,60 @@ internal object AbyssSourceResolver {
         }
         val sources = mp4.optJSONArray("sources") ?: JSONArray()
         val rawSources = (0 until sources.length()).mapNotNull { sources.optJSONObject(it) }
+        val firstDatas = mp4.optJSONArray("fristDatas") ?: JSONArray()
+        val domains = mp4.optJSONArray("domains") ?: JSONArray()
+        val firstDataObjects = (0 until firstDatas.length()).mapNotNull { index ->
+            firstDatas.optJSONObject(index)?.let { index to it }
+        }
         val options = rawSources.map { json ->
+            val resId = json.optInt("res_id", 0)
+            val size = json.optLong("size", 0L)
+            val matched = firstDataObjects.firstOrNull { (_, item) ->
+                item.optInt("res_id", 0) == resId &&
+                    (item.optLong("size", -1L) == size || item.optLong("size", -1L) < 0L)
+            } ?: firstDataObjects.firstOrNull { (_, item) -> item.optInt("res_id", 0) == resId }
+            val dataIndex = matched?.first ?: -1
+            val data = matched?.second
+            var sourceUrl = json.optString("url").takeUnless { it == "null" }.orEmpty()
+            var sourcePath = json.optString("path").takeUnless { it == "null" }.orEmpty()
+            var directUrl = ""
+            if (sourceUrl.isBlank() || sourcePath.isBlank()) {
+                val metadataUrl = data?.optString("url").takeUnless { it == "null" }.orEmpty()
+                val candidate = metadataUrl.ifBlank { sourceUrl }
+                if (candidate.startsWith("https://", true) || candidate.startsWith("//")) {
+                    val absolute = if (candidate.startsWith("//")) "https:$candidate" else candidate
+                    runCatching {
+                        val parsed = URL(absolute)
+                        if (parsed.protocol == "https" && parsed.host.isNotBlank()) {
+                            if (parsed.path.isNullOrBlank() || parsed.path == "/") {
+                                directUrl = absolute
+                            } else {
+                                sourceUrl = "https://${parsed.authority}"
+                                sourcePath = parsed.file.removePrefix("/")
+                            }
+                        }
+                    }
+                } else if (candidate.isNotBlank() && !candidate.startsWith("http://", true)) {
+                    val domainValue = if (dataIndex >= 0) domains.optString(dataIndex).orEmpty() else ""
+                    val domain = domainValue.removePrefix("https://").removePrefix("http://").trim().trimEnd('/')
+                    if (domain.isNotBlank() && !domain.contains('/') && !domain.contains(' ')) {
+                        directUrl = "https://$domain/${candidate.trimStart('/')}"
+                    }
+                }
+            }
+            if (sourcePath.isNotBlank() && sourceUrl.startsWith("https://")) directUrl = ""
+            val allKeys = (json.keys().asSequence().toList() +
+                (data?.keys()?.asSequence()?.map { "fristDatas.$it" }?.toList() ?: emptyList())).distinct()
             AbyssSourceOption(
                 label = json.optString("label").takeUnless { it == "null" }.orEmpty(),
-                resId = json.optInt("res_id", 0),
-                size = json.optLong("size", 0L),
-                partSize = json.optLong("partSize", 0L),
+                resId = resId,
+                size = size,
+                partSize = data?.optLong("partSize", json.optLong("partSize", 0L)) ?: json.optLong("partSize", 0L),
                 status = json.optBoolean("status", false),
-                path = json.optString("path").takeUnless { it == "null" }.orEmpty(),
-                url = json.optString("url").takeUnless { it == "null" }.orEmpty(),
-                keys = json.keys().asSequence().toList()
+                path = sourcePath,
+                url = sourceUrl,
+                keys = allKeys,
+                directUrl = directUrl
             )
         }
         val selection = AbyssSourceSelection.select(options, quality)
@@ -126,7 +170,7 @@ internal object AbyssSourceResolver {
         }
         val base = selected.url.trimEnd('/')
         val path = selected.path.trimStart('/')
-        val finalUrl = "$base/$path"
+        val finalUrl = selected.directUrl.ifBlank { "$base/$path" }
         val filename = URL(finalUrl).path.substringAfterLast('/').ifBlank { path.substringAfterLast('/') }
         if (!finalUrl.startsWith("https://")) throw ResolveFailure("unsupported", "La fuente no usa HTTPS / Source is not HTTPS")
         progress(88, "Preparando transmisión segura… / Preparing stream…")

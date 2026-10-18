@@ -83,4 +83,24 @@ class AbyssSourceSelectionTest {
         )
         assertEquals(700L, AbyssSourceSelection.select(options, "5").selected!!.size)
     }
+    @Test fun fristDatasDirectHttpsUrlCanBeSelectedWithoutOuterPath() {
+        val option = source("480p", 3, 100L, path = "", url = "").copy(
+            keys = listOf("label", "res_id", "size", "codec", "status", "sub", "fristDatas.url", "fristDatas.partSize"),
+            directUrl = "https://media.example.test/video/clip.mp4?token=abc"
+        )
+        val result = AbyssSourceSelection.select(listOf(option), "3")
+        assertNotNull(result.selected)
+        assertEquals(option.directUrl, result.selected!!.directUrl)
+        assertEquals(1, result.validCount)
+    }
+
+    @Test fun splitOnlyWithResolvedDirectUrlsStillReportsUnsupported() {
+        val option = source("1080p", 5, 300L, partSize = 100L, path = "", url = "").copy(
+            directUrl = "https://media.example.test/video/clip.mp4"
+        )
+        val result = AbyssSourceSelection.select(listOf(option), "best")
+        assertNull(result.selected)
+        assertEquals("unsupported", result.failureCode)
+    }
+
 }

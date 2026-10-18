@@ -11,7 +11,8 @@ internal data class AbyssSourceOption(
     val status: Boolean,
     val path: String,
     val url: String,
-    val keys: List<String> = emptyList()
+    val keys: List<String> = emptyList(),
+    val directUrl: String = ""
 )
 
 internal data class AbyssSourceSelectionResult(
@@ -24,13 +25,12 @@ internal data class AbyssSourceSelectionResult(
 internal object AbyssSourceSelection {
     fun select(options: List<AbyssSourceOption>, requestedQuality: String): AbyssSourceSelectionResult {
         val valid = options.filter { option ->
-            option.path.isNotBlank() &&
-                option.url.startsWith("https://") &&
+            hasUsableLocation(option) &&
                 (option.partSize == 0L || option.partSize >= option.size)
         }
         if (valid.isEmpty()) {
             val onlyFragmented = options.isNotEmpty() && options.all {
-                it.path.isNotBlank() && it.url.startsWith("https://") && it.partSize > 0L && it.partSize < it.size
+                hasUsableLocation(it) && it.partSize > 0L && it.partSize < it.size
             }
             return if (onlyFragmented) {
                 AbyssSourceSelectionResult(
@@ -68,7 +68,7 @@ internal object AbyssSourceSelection {
     fun diagnosticSummary(options: List<AbyssSourceOption>, result: AbyssSourceSelectionResult): String {
         val perSource = options.mapIndexed { index, option ->
             val reason = when {
-                option.path.isBlank() || option.url.isBlank() || !option.url.startsWith("https://") -> "sin path/url (missing path/url)"
+                !hasUsableLocation(option) -> "sin URL reproducible (missing playable URL/path)"
                 option.partSize > 0L && option.partSize < option.size -> "fragmentada (fragmented)"
                 result.selected === option -> "elegida (selected)"
                 else -> "no es la calidad pedida (not requested quality)"
@@ -77,6 +77,10 @@ internal object AbyssSourceSelection {
         }.joinToString(" || ")
         return "sourceCountBefore=${options.size} sourceCountAfter=${result.validCount}; $perSource"
     }
+
+    private fun hasUsableLocation(option: AbyssSourceOption): Boolean =
+        option.directUrl.startsWith("https://") ||
+            (option.path.isNotBlank() && option.url.startsWith("https://"))
 
     private fun rank(option: AbyssSourceOption): Long =
         (if (option.status) 1L shl 62 else 0L) + option.size.coerceAtLeast(0L).coerceAtMost((1L shl 62) - 1)

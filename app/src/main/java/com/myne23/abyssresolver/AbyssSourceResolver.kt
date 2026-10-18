@@ -188,19 +188,10 @@ internal object AbyssSourceResolver {
         val soraBase = if (selected.sub.isNotBlank() && domainSuffix.isNotBlank()) {
             "https://${selected.sub}.$domainSuffix"
         } else ""
-        // Prefer the legacy direct byte-range transport when metadata gives us a
-        // concrete file path. Some Abyss entries include partSize metadata even though
-        // the direct URL is still usable; forcing those through Sora caused regressions
-        // in the previously working non-Sora series. Use Sora only when the candidate
-        // is a host/root URL and the metadata identifies a split source.
-        val candidateHasFilePath = runCatching {
-            val candidate = URL(directCandidate)
-            candidate.path.isNotBlank() && candidate.path != "/"
-        }.getOrDefault(false)
+        // Keep the legacy byte-range route for sources that expose a real path.
         val segmented = soraBase.isNotBlank() &&
             selected.partSize > 0L && selected.size > selected.partSize &&
-            md5Id.isNotBlank() && selected.resId > 0 &&
-            !candidateHasFilePath
+            md5Id.isNotBlank() && selected.resId > 0
         val segmentBase = if (segmented) soraBase else ""
         val finalUrl = if (segmented) segmentBase else directCandidate
         val filename = if (segmented) "$md5Id-${selected.resId}.mp4" else URL(finalUrl).path.substringAfterLast('/').ifBlank { path.substringAfterLast('/') }

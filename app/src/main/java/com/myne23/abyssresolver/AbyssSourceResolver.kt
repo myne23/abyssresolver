@@ -187,7 +187,10 @@ internal object AbyssSourceResolver {
         // Sora metadata has no per-file path: the CDN host plus the subdomain identify
         // the source, and the actual MP4 is addressed by generated /sora/ tokens.
         // Keep the legacy byte-range route for sources that expose a real path.
-        val segmented = selected.path.isBlank() && selected.sub.isNotBlank() &&
+        // Abyss's reference client builds the Sora base from the source subdomain and
+        // the CDN domain. The firstDatas.url may also contain a legacy-looking path;
+        // that path is not proof that this is a byte-range MP4 when partSize is present.
+        val segmented = selected.sub.isNotBlank() &&
             selected.partSize > 0L && selected.size > selected.partSize &&
             selected.url.startsWith("https://") && md5Id.isNotBlank() && selected.resId > 0
         val segmentBase = if (segmented) selected.url.trimEnd('/') else ""

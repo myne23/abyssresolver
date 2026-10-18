@@ -28,8 +28,9 @@ internal class AbyssMediaServer(private val context: Context) {
     @Volatile private var layoutProbeUrl: String? = null
     @Volatile var lastActivityMs: Long = System.currentTimeMillis()
         private set
-    // Smaller chunks make random seeks less likely to wait for a full megabyte download.
-    private val chunkSize = 256 * 1024
+    // Larger chunks reduce sequential startup latency by avoiding a separate upstream request every 256 KiB.
+    // Range requests still fetch only the chunk containing the requested position.
+    private val chunkSize = 1024 * 1024
 
     @Synchronized fun register(next: AbyssSource): String {
         val sameContent = source?.url == next.url
@@ -125,7 +126,10 @@ internal class AbyssMediaServer(private val context: Context) {
             out.flush()
             diagnostic("media_request", "$method range=$requestRange sent=$bytesWritten expected=${end - start + 1} total=$total durationMs=${System.currentTimeMillis() - requestStartedAt}")
         } catch (e: Throwable) {
-            diagnostic("media_request_error", "$requestMethod range=$requestRange stage=$failureStage sent=$bytesWritten pos=$requestStart..$requestEnd total=$knownTotal durationMs=${System.currentTimeMillis() - requestStartedAt} ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+            val detail = "$requestMethod range=$requestRange stage=$failureStage sent=$bytesWritten pos=$requestStart..$requestEnd total=$knownTotal durationMs=${System.currentTimeMillis() - requestStartedAt} ${e.javaClass.simpleName}: ${e.message ?: "no message"}"
+            val clientClosed = (failureStage == "client_write" || failureStage == "client_flush") &&
+                (e is java.net.SocketException || e.cause is java.net.SocketException)
+            diagnostic(if (clientClosed) "media_client_disconnected" else "media_request_error", detail)
             if (!headersSent) runCatching { reply(client, 503, "Abyss upstream unavailable") }
         }
     }

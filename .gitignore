@@ -4,3 +4,8 @@
 local.properties
 *.iml
 .DS_Store
+
+# Android release signing credentials — never commit these.
+*.jks
+*.keystore
+keystore.properties

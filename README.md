@@ -5,7 +5,7 @@ Android companion app for Kino's external-resolver protocol.
 - Android package: `com.mmilew.kinoresolvers`
 - Kotlin namespace: `com.myne23.abyssresolver`
 - Version: `1.0.1` (version code `17`)
-- Implemented protocols: `abyss`, `abyss2` (permission-refresh alias), and `mega`
+- Implemented protocols: `abyss`, `abyss2` and `abyss3` (permission-refresh test aliases), and `mega`
 
 ## Build and validation
 
@@ -28,7 +28,7 @@ Use the real path and values only on your machine. Never commit this file or the
 
 ## Protocols
 
-- `abyss` and `abyss2`: resolve the player payload and serve media through a loopback HTTP endpoint. `abyss2` is a compatibility alias intended to obtain a fresh Kino external-resolver permission entry.
+- `abyss`, `abyss2`, and `abyss3`: resolve the player payload and serve media through a loopback HTTP endpoint. `abyss2` is a compatibility alias intended to obtain a fresh Kino external-resolver permission entry.
 - `mega`: resolves public MEGA links and decrypts/range-serves media through its own loopback HTTP endpoint.
 
 Both protocols require real-device playback checks; CI success alone is not proof of playback compatibility.

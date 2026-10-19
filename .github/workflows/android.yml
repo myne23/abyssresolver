@@ -1,7 +1,10 @@
 name: Android build and tests
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - test/mega-kinoresolvers-id
+      - feature/kino-resolvers-package
   pull_request:
   workflow_dispatch:
 permissions:
@@ -18,12 +21,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11.1"
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
       - name: Install Android SDK
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-      - name: Run unit tests and build debug APK
-        run: gradle testDebugUnitTest assembleDebug
+      - name: Run unit tests and build debug and release APKs
+        run: gradle testDebugUnitTest assembleDebug assembleRelease
       - uses: actions/upload-artifact@v4
         with:
-          name: abyssresolver-debug-apk
+          name: kino-resolvers-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kino-resolvers-release-unsigned-apk
+          path: app/build/outputs/apk/release/app-release-unsigned.apk

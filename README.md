@@ -1,17 +1,34 @@
-# Abyss Resolver for Kino
+# Kino Resolvers
 
-Android companion app for the Kino external-resolver protocol. Package: `com.mmilew.abyssresolver`; protocol: `abyss`.
+Android companion app for Kino's external-resolver protocol.
 
-This repository is being developed as an independent companion for the AnimeYT Kino plugin. It is not yet a release build. Do not install or publish an APK until the resolver is tested against real playback and the Kino SDK contract.
+- Android package: `com.mmilew.kinoresolvers`
+- Kotlin namespace: `com.myne23.abyssresolver`
+- Version: `1.0.0` (version code `16`)
+- Implemented protocols: `abyss` and `mega`
 
-## Build
-Open this project in Android Studio with Android SDK 36 and JDK 17. The project uses Android Gradle Plugin 8.10 and Kotlin 2.2.21. A Gradle wrapper is not included yet; use a local Gradle 8.11.1 installation for command-line builds.
+## Build and validation
 
-## What it does
-- Kino binds the Android external resolver service and passes an opaque `abyss:` ref.
-- The app retrieves the public Abyss player page, parses its source payload, decrypts the media metadata, and serves the video through a loopback HTTP server.
-- The loopback server is intended to support GET, HEAD, Range, CORS, and `X-Resolver-Error`.
-- The MP4 prefix transformation and real-player interoperability must be verified before a release.
+The project uses Android SDK 36, Android Gradle Plugin 8.10.0, and Gradle 8.11.1. CI runs unit tests and builds debug and release APKs. The CI release artifact is unsigned by design; sign the release locally before distributing it.
 
-## Status
-Work in progress. No APK release exists yet. Never claim the app is working until unit tests, SDK validation, and real playback on a device have passed.
+A successful CI build confirms compilation and unit tests, not successful playback in every Kino player. Test both Abyss and MEGA with real links on a device before treating the build as stable.
+
+## Local release signing
+
+Keep the private keystore outside the repository. Add these properties to `~/.gradle/gradle.properties`:
+
+```properties
+KINO_RELEASE_STORE_FILE=/absolute/path/to/kinoresolvers.jks
+KINO_RELEASE_STORE_PASSWORD=your-keystore-password
+KINO_RELEASE_KEY_ALIAS=kinoresolvers
+KINO_RELEASE_KEY_PASSWORD=your-key-password
+```
+
+Use the real path and values only on your machine. Never commit this file or the keystore. With all four properties present, `gradle assembleRelease` signs the APK locally.
+
+## Protocols
+
+- `abyss`: resolves the player payload and serves media through a loopback HTTP endpoint.
+- `mega`: resolves public MEGA links and decrypts/range-serves media through its own loopback HTTP endpoint.
+
+Both protocols require real-device playback checks; CI success alone is not proof of playback compatibility.

@@ -68,7 +68,7 @@ class ResolverService : Service() {
                     promoteToForeground()
                     val local: String
                     when (protocol) {
-                        "abyss" -> {
+                        "abyss", "abyss2" -> {
                             callback.onProgress(-1, "Preparando Abyss… / Preparing Abyss…")
                             val parsed = AbyssSourceResolver.resolve(ref, cancelled) { p, msg ->
                                 diagnostic("abyss progress=$p $msg")

@@ -1,12 +1,15 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
-val keystoreProperties = java.util.Properties().apply {
-    val propertiesFile = rootProject.file("keystore.properties")
-    if (propertiesFile.exists()) {
-        propertiesFile.inputStream().use { load(it) }
+val keystoreProperties = Properties()
+val propertiesFile = rootProject.file("keystore.properties")
+if (propertiesFile.exists()) {
+    propertiesFile.inputStream().use { input ->
+        keystoreProperties.load(input)
     }
 }
 val hasReleaseSigning = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")

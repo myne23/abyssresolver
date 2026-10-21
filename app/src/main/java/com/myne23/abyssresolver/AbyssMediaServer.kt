@@ -199,6 +199,12 @@ internal class AbyssMediaServer(private val context: Context) {
                     // the requested segment is still scheduled independently above.
                     if (part.length() >= (segmentSize * 9L / 10L)) {
                         scheduleSoraPrefetch(src, chunk + 1, total)
+                        // Small Sora parts often arrive quickly, but a single slow CDN part
+                        // can empty Kino's buffer. For 4 MiB parts, keep one extra part ready;
+                        // larger parts retain the conservative one-part window.
+                        if (segmentSize <= 4L * 1024L * 1024L) {
+                            scheduleSoraPrefetch(src, chunk + 2, total)
+                        }
                     }
                     val available = part.length() - inChunk
                     // Never expose the MP4 header until enough bytes exist to validate it.
@@ -230,8 +236,11 @@ internal class AbyssMediaServer(private val context: Context) {
                 }
                 Thread.sleep(25L)
             }
-            // Keep a rolling buffer ahead of playback; the current segment is already available.
-            for (ahead in 1..1) scheduleSoraPrefetch(src, chunk + ahead, total)
+            // Keep a rolling buffer ahead of playback. Small 4 MiB Sora parts get
+            // a two-part lookahead to mask occasional slow CDN responses; larger parts
+            // stay at one ahead to avoid unnecessary concurrent bandwidth use.
+            val prefetchDepth = if (segmentSize <= 4L * 1024L * 1024L) 2 else 1
+            for (ahead in 1..prefetchDepth) scheduleSoraPrefetch(src, chunk + ahead, total)
             return min(len, (file.length() - inChunk).toInt().coerceAtLeast(0)).also { count ->
                 if (count <= 0) throw IllegalStateException("Sora segment cache has no bytes index=$chunk")
                 java.io.RandomAccessFile(file, "r").use { it.seek(inChunk.toLong()); it.readFully(out, 0, count) }

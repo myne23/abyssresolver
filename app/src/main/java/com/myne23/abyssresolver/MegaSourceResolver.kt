@@ -49,7 +49,7 @@ internal object MegaSourceResolver {
 
         if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
         progress(20, "Consultando metadatos de MEGA… / Fetching MEGA metadata…")
-        val request = JSONArray().put(JSONObject().put("a", "g").put("g", 1).put("p", handle))
+        val request = JSONArray().put(JSONObject().put("a", "g").put("g", 1).put("ssl", 1).put("p", handle))
         val endpoint = URL("https://g.api.mega.co.nz/cs?id=" + System.currentTimeMillis())
         val conn = endpoint.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
@@ -77,7 +77,18 @@ internal object MegaSourceResolver {
         val streamUrl = item.optString("g")
         val size = item.optLong("s", -1L)
         if (!streamUrl.startsWith("https://") || size <= 0L) {
-            throw ResolveFailure("unavailable", "MEGA no proporcionó una URL o tamaño válido / MEGA did not provide a valid URL or size")
+            val keys = item.keys().asSequence().toList().sorted().joinToString(",").ifBlank { "(ninguna)" }
+            val apiError = item.opt("e")?.toString() ?: item.opt("err")?.toString() ?: item.opt("error")?.toString() ?: "ninguno"
+            val gValue = item.opt("g")
+            val gType = gValue?.javaClass?.simpleName ?: "null"
+            val gLength = streamUrl.length
+            val gUrl = try { URL(streamUrl) } catch (_: Exception) { null }
+            val gScheme = gUrl?.protocol ?: "no-url"
+            val gHost = gUrl?.host ?: "no-host"
+            throw ResolveFailure(
+                "unavailable",
+                "MEGA respuesta inválida (keys=$keys, apiError=$apiError, gType=$gType, gScheme=$gScheme, gHost=$gHost, gLength=$gLength, size=$size) / MEGA invalid response (keys=$keys, apiError=$apiError, gType=$gType, gScheme=$gScheme, gHost=$gHost, gLength=$gLength, size=$size)"
+            )
         }
         if (cancelled.get()) throw ResolveFailure("cancelled", "Resolución cancelada / Resolution cancelled")
         progress(100, "Archivo MEGA listo / MEGA file ready")

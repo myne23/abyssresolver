@@ -49,7 +49,29 @@ internal class AbyssMediaServer(private val context: Context) {
     // Prevent a permanently failing CDN segment from triggering a tight retry loop.
     private val soraPrefetchRetryAfter = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
+    // Cache files live under cacheDir, so Android may clear them at any time.
+    // Also prune abandoned data ourselves, but never touch files for the active source.
+    private fun cleanupOldCache(active: AbyssSource?) {
+        val now = System.currentTimeMillis()
+        val activePrefix = active?.let { md5(it.url + "|" + it.filename) }
+        val staleCompleteMs = 24L * 60L * 60L * 1000L
+        val stalePartialMs = 2L * 60L * 60L * 1000L
+        runCatching {
+            cache.listFiles()?.forEach { file ->
+                if (!file.isFile) return@forEach
+                val isPartial = file.name.endsWith(".part")
+                val ageLimit = if (isPartial) stalePartialMs else staleCompleteMs
+                val age = now - file.lastModified()
+                val belongsToActiveSource = activePrefix != null && file.name.startsWith(activePrefix + "-")
+                if (!belongsToActiveSource && age >= ageLimit) {
+                    runCatching { file.delete() }
+                }
+            }
+        }.onFailure { Log.w("KinoExternalResolver", "cache cleanup failed", it) }
+    }
+
     @Synchronized fun register(next: AbyssSource): String {
+        cleanupOldCache(next)
         // A CDN host is reused across episodes; compare the full source metadata, not just the host URL.
         val sameContent = source == next
         if (!sameContent) {

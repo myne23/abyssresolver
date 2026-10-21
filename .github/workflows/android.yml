@@ -4,6 +4,7 @@ on:
     branches:
       - main
       - test/mega-from-working-abyss
+      - fix/restore-abyss-plus-mega
       - feature/kino-resolvers-package
       - fix/abyss-quality-fragmented-sources
       - fix/abyss-segment-token-stream

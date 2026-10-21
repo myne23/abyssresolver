@@ -194,11 +194,12 @@ internal class AbyssMediaServer(private val context: Context) {
                     }
                 }
                 if (part.exists()) {
-                    // Do not overlap two Sora segment downloads. When the player seeks to
-                    // an uncached segment, the requested segment must get the available
-                    // bandwidth; starting the next multi-MiB request near the end of this
-                    // one can leave both incomplete and cause playback to stall. The next
-                    // segment is scheduled immediately after this one is committed below.
+                    // Start the next segment near the end of the current download to
+                    // preserve the established Sora rolling buffer. If the player seeks,
+                    // the requested segment is still scheduled independently above.
+                    if (part.length() >= (segmentSize * 9L / 10L)) {
+                        scheduleSoraPrefetch(src, chunk + 1, total)
+                    }
                     val available = part.length() - inChunk
                     // Never expose the MP4 header until enough bytes exist to validate it.
                     val prefixReady = chunk != 0 || part.length() >= 65536L

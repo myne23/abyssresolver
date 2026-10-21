@@ -194,15 +194,11 @@ internal class AbyssMediaServer(private val context: Context) {
                     }
                 }
                 if (part.exists()) {
-                    // Start the next segment after ~2/3 of the current one has arrived.
-                    // This gives the active seek/start request priority instead of splitting
-                    // bandwidth evenly between two large Sora downloads from byte zero.
-                    // Keep the active Sora segment dominant for most of its transfer. Starting
-                    // the next multi-MiB request at 2/3 caused both full-segment downloads
-                    // to compete for bandwidth; only overlap the final 10% as a small runway.
-                    if (part.length() >= (segmentSize * 9L / 10L)) {
-                        scheduleSoraPrefetch(src, chunk + 1, total)
-                    }
+                    // Do not overlap two Sora segment downloads. When the player seeks to
+                    // an uncached segment, the requested segment must get the available
+                    // bandwidth; starting the next multi-MiB request near the end of this
+                    // one can leave both incomplete and cause playback to stall. The next
+                    // segment is scheduled immediately after this one is committed below.
                     val available = part.length() - inChunk
                     // Never expose the MP4 header until enough bytes exist to validate it.
                     val prefixReady = chunk != 0 || part.length() >= 65536L

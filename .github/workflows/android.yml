@@ -5,6 +5,7 @@ on:
       - main
       - test/mega-from-working-abyss
       - fix/restore-abyss-plus-mega
+      - fix/sora-seek-buffering
       - feature/kino-resolvers-package
       - fix/abyss-quality-fragmented-sources
       - fix/abyss-segment-token-stream

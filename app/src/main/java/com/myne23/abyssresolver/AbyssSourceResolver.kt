@@ -72,9 +72,16 @@ internal object AbyssSourceResolver {
         val payload = try { JSONObject(plaintext) } catch (_: Exception) {
             throw ResolveFailure("bad_response", "No se pudieron descifrar los metadatos MP4 / Could not decrypt MP4 metadata")
         }
-        // Abyss variants may wrap provider metadata inside a "media" object.
-        // Normalize both shapes before selecting a source.
-        val media = payload.optJSONObject("media") ?: payload
+        // Abyss variants may wrap provider metadata inside a "media" object, while
+        // others keep mp4/hls at the payload root and use "media" for unrelated metadata.
+        // Prefer whichever object actually contains the MP4 source manifest; otherwise
+        // keep the previous nested-object fallback for useful HLS/unavailable diagnostics.
+        val nestedMedia = payload.optJSONObject("media")
+        val media = when {
+            payload.optJSONObject("mp4") != null -> payload
+            nestedMedia?.optJSONObject("mp4") != null -> nestedMedia
+            else -> nestedMedia ?: payload
+        }
         val mp4 = media.optJSONObject("mp4")
         val hls = media.optJSONObject("hls")
         if (mp4 == null) {
